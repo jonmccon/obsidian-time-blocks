@@ -1,0 +1,623 @@
+import { ItemView, Notice, WorkspaceLeaf, requestUrl } from 'obsidian';
+import TimeBlockPlugin from '../main';
+import { GCalEvent, ScheduledBlock, TaskItem } from '../types';
+import { parseICS } from '../utils/icsParser';
+import { queryTasks } from '../utils/taskQuery';
+import {
+	addWeeks,
+	formatDate,
+	formatHour,
+	getWeekDays,
+	getWeekStart,
+	isToday,
+} from '../utils/weekUtils';
+
+export const TIME_BLOCK_VIEW_TYPE = 'time-block-view';
+
+/** Pixels per hour on the time grid (1 px ≈ 1 minute). */
+const HOUR_HEIGHT = 60;
+/** Minimum schedulable duration, in minutes. */
+const MIN_DURATION = 15;
+/** Height of the sticky day-header row. */
+const DAY_HEADER_HEIGHT = 44;
+
+export class TimeBlockView extends ItemView {
+	plugin: TimeBlockPlugin;
+
+	private weekStart: Date;
+	private gcalEvents: GCalEvent[] = [];
+	private backlogTasks: TaskItem[] = [];
+
+	// Elements rebuilt on each render() call
+	private sidebarEl!: HTMLElement;
+	private mainEl!: HTMLElement;
+	private gridEl!: HTMLElement;
+	private backlogListEl!: HTMLElement;
+	private searchInput!: HTMLInputElement;
+
+	// Drag state
+	private draggingTaskId: string | null = null;
+	private draggingBlockId: string | null = null;
+
+	constructor(leaf: WorkspaceLeaf, plugin: TimeBlockPlugin) {
+		super(leaf);
+		this.plugin = plugin;
+		this.weekStart = getWeekStart(new Date());
+	}
+
+	getViewType(): string {
+		return TIME_BLOCK_VIEW_TYPE;
+	}
+
+	getDisplayText(): string {
+		return 'Time blocks';
+	}
+
+	getIcon(): string {
+		return 'calendar-days';
+	}
+
+	// ── Lifecycle ──────────────────────────────────────────────────────────────
+
+	async onOpen(): Promise<void> {
+		this.render();
+		await this.refresh();
+	}
+
+	async onClose(): Promise<void> {
+		// Nothing to clean up; Obsidian removes the DOM automatically.
+	}
+
+	// ── Data loading ───────────────────────────────────────────────────────────
+
+	/** Fetches tasks from the vault and GCal events, then re-renders both panels. */
+	async refresh(): Promise<void> {
+		await Promise.all([this.loadTasks(), this.loadGCalEvents()]);
+		this.renderBacklogList();
+		this.renderBlocks();
+	}
+
+	private async loadTasks(): Promise<void> {
+		const { showCompletedTasks, taskTagFilter } = this.plugin.settings;
+		const all = await queryTasks(this.app, {
+			showCompleted: showCompletedTasks,
+			tagFilter: tagFilter(taskTagFilter),
+		});
+
+		// Filter out tasks that are already scheduled this week so the backlog
+		// only shows tasks still needing placement.
+		const weekKey = formatDate(this.weekStart);
+		const scheduledIds = new Set(
+			this.plugin.blocks
+				.filter((b) => b.weekStart === weekKey && b.taskId)
+				.map((b) => b.taskId as string)
+		);
+		this.backlogTasks = all.filter((t) => !scheduledIds.has(t.id));
+	}
+
+	private async loadGCalEvents(): Promise<void> {
+		const url = this.plugin.settings.googleCalendarIcsUrl.trim();
+		if (!url) return;
+
+		try {
+			const resp = await requestUrl({ url, method: 'GET' });
+			this.gcalEvents = parseICS(resp.text);
+		} catch (err) {
+			console.error('[Time Blocks] GCal fetch failed:', err);
+			new Notice(
+				'Time blocks: could not fetch the calendar. Check the calendar URL in plugin settings.'
+			);
+		}
+	}
+
+	// ── Top-level rendering ────────────────────────────────────────────────────
+
+	/**
+	 * Builds the outer chrome (sidebar + main area).  Called once on open and
+	 * again whenever the user navigates between weeks.
+	 */
+	private render(): void {
+		const root = this.containerEl.children[1] as HTMLElement;
+		root.empty();
+		root.addClass('tb-root');
+
+		this.sidebarEl = root.createDiv('tb-sidebar');
+		this.mainEl = root.createDiv('tb-main');
+
+		this.buildSidebar();
+		this.buildWeekNav();
+		this.buildGrid();
+	}
+
+	// ── Sidebar ────────────────────────────────────────────────────────────────
+
+	private buildSidebar(): void {
+		// Header
+		const header = this.sidebarEl.createDiv('tb-sidebar-header');
+		header.createEl('span', { text: 'Task backlog', cls: 'tb-sidebar-title' });
+
+		const refreshBtn = header.createEl('button', {
+			cls: 'tb-icon-btn',
+			attr: { 'aria-label': 'Refresh tasks', title: 'Refresh tasks' },
+		});
+		refreshBtn.textContent = '↻';
+		refreshBtn.addEventListener('click', () => { void this.refresh(); });
+
+		// Search/filter
+		const searchRow = this.sidebarEl.createDiv('tb-search-row');
+		this.searchInput = searchRow.createEl('input', {
+			type: 'text',
+			cls: 'tb-search-input',
+			placeholder: 'Filter tasks…',
+		} as Parameters<typeof searchRow.createEl>[1]);
+		this.searchInput.addEventListener('input', () => this.renderBacklogList());
+
+		// Scrollable task list
+		this.backlogListEl = this.sidebarEl.createDiv('tb-backlog-list');
+	}
+
+	private renderBacklogList(): void {
+		this.backlogListEl.empty();
+
+		const query = this.searchInput?.value?.toLowerCase() ?? '';
+		const visible = this.backlogTasks.filter((t) =>
+			t.title.toLowerCase().includes(query)
+		);
+
+		if (visible.length === 0) {
+			this.backlogListEl.createEl('p', {
+				text:
+					query
+						? 'No matching tasks.'
+						: 'No incomplete tasks found in the vault.',
+				cls: 'tb-empty-msg',
+			});
+			return;
+		}
+
+		for (const task of visible) {
+			this.buildTaskItem(task);
+		}
+	}
+
+	private buildTaskItem(task: TaskItem): void {
+		const el = this.backlogListEl.createDiv('tb-task-item');
+		el.setAttribute('draggable', 'true');
+		el.dataset.taskId = task.id;
+		el.setAttribute('title', `${task.filePath} : line ${task.lineNumber}`);
+
+		// Priority indicator
+		if (task.priority !== undefined) {
+			const icons = ['', '🔺', '⏫', '🔼', '🔽', '⏬'];
+			el.createSpan({
+				text: icons[task.priority] ?? '',
+				cls: 'tb-task-prio',
+			});
+		}
+
+		el.createDiv({ text: task.title, cls: 'tb-task-title' });
+
+		if (task.dueDate) {
+			const dateEl = el.createDiv({
+				text: `Due ${task.dueDate.toLocaleDateString()}`,
+				cls: 'tb-task-due',
+			});
+			if (task.dueDate < new Date()) dateEl.addClass('tb-overdue');
+		}
+
+		if (task.tags.length > 0) {
+			el.createDiv({ text: task.tags.join(' '), cls: 'tb-task-tags' });
+		}
+
+		el.addEventListener('dragstart', (e: DragEvent) => {
+			this.draggingTaskId = task.id;
+			this.draggingBlockId = null;
+			e.dataTransfer?.setData('text/plain', task.id);
+			if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+			el.addClass('tb-dragging');
+		});
+		el.addEventListener('dragend', () => el.removeClass('tb-dragging'));
+	}
+
+	// ── Week navigation ────────────────────────────────────────────────────────
+
+	private buildWeekNav(): void {
+		const nav = this.mainEl.createDiv('tb-week-nav');
+
+		const prevBtn = nav.createEl('button', { cls: 'tb-nav-btn', text: '← prev' });
+		prevBtn.addEventListener('click', () => this.navigateWeek(-1));
+
+		const days = getWeekDays(this.weekStart);
+		const mondayLabel = (days[0] as Date).toLocaleDateString(undefined, {
+			month: 'long',
+			day: 'numeric',
+			year: 'numeric',
+		});
+		nav.createEl('span', {
+			cls: 'tb-week-label',
+			text: `Week of ${mondayLabel}`,
+		});
+
+		const todayBtn = nav.createEl('button', { cls: 'tb-nav-btn', text: 'Today' });
+		todayBtn.addEventListener('click', () => {
+			this.weekStart = getWeekStart(new Date());
+			this.render();
+			void this.refresh();
+		});
+
+		const nextBtn = nav.createEl('button', { cls: 'tb-nav-btn', text: 'Next →' });
+		nextBtn.addEventListener('click', () => this.navigateWeek(1));
+
+		const refreshBtn = nav.createEl('button', {
+			cls: 'tb-nav-btn',
+			text: '↻ refresh',
+		});
+		refreshBtn.addEventListener('click', () => void this.refresh());
+	}
+
+	private navigateWeek(delta: number): void {
+		this.weekStart = addWeeks(this.weekStart, delta);
+		this.render();
+		void this.refresh();
+	}
+
+	// ── Weekly grid ────────────────────────────────────────────────────────────
+
+	private buildGrid(): void {
+		this.gridEl = this.mainEl.createDiv('tb-grid');
+
+		const { workdayStart, workdayEnd } = this.plugin.settings;
+		const totalHours = workdayEnd - workdayStart;
+		const days = getWeekDays(this.weekStart);
+
+		// Time-label column
+		const timeCol = this.gridEl.createDiv('tb-time-col');
+		// Spacer to align with sticky day headers
+		timeCol.createDiv({
+			cls: 'tb-time-spacer',
+			attr: { style: `height:${DAY_HEADER_HEIGHT}px` },
+		});
+		for (let h = workdayStart; h <= workdayEnd; h++) {
+			const label = timeCol.createDiv('tb-hour-label');
+			label.style.height = `${HOUR_HEIGHT}px`;
+			label.textContent = formatHour(h);
+		}
+
+		// Day columns
+		for (let d = 0; d < 7; d++) {
+			// days always has exactly 7 elements; safe to assert non-null
+			this.buildDayColumn(days[d] as Date, d, totalHours, workdayStart, workdayEnd);
+		}
+	}
+
+	private buildDayColumn(
+		day: Date,
+		dayIndex: number,
+		totalHours: number,
+		workdayStart: number,
+		workdayEnd: number
+	): void {
+		const col = this.gridEl.createDiv('tb-day-col');
+		col.dataset.dayIndex = String(dayIndex);
+		if (isToday(day)) col.addClass('tb-today');
+
+		// Sticky header
+		const header = col.createDiv('tb-day-header');
+		header.style.height = `${DAY_HEADER_HEIGHT}px`;
+		header.createEl('span', {
+			cls: 'tb-day-name',
+			text: day.toLocaleDateString(undefined, { weekday: 'short' }),
+		});
+		header.createEl('span', {
+			cls: 'tb-day-num',
+			text: String(day.getDate()),
+		});
+
+		// Drop zone (time slots container)
+		const slots = col.createDiv('tb-slots');
+		slots.style.height = `${(totalHours + 1) * HOUR_HEIGHT}px`;
+
+		// Hour grid lines
+		for (let h = 0; h <= totalHours; h++) {
+			const slot = slots.createDiv('tb-hour-slot');
+			slot.style.top = `${h * HOUR_HEIGHT}px`;
+			slot.style.height = `${HOUR_HEIGHT}px`;
+		}
+
+		// Current-time indicator (only for today)
+		if (isToday(day)) {
+			this.renderNowIndicator(slots, workdayStart, workdayEnd);
+		}
+
+		// Drag-and-drop receivers
+		slots.addEventListener('dragover', (e: DragEvent) => {
+			e.preventDefault();
+			if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+			slots.addClass('tb-drop-active');
+		});
+		slots.addEventListener('dragleave', () => slots.removeClass('tb-drop-active'));
+		slots.addEventListener('drop', (e: DragEvent) => {
+			e.preventDefault();
+			slots.removeClass('tb-drop-active');
+
+			const rect = slots.getBoundingClientRect();
+			const rawMinutes = ((e.clientY - rect.top) / HOUR_HEIGHT) * 60;
+			const snapped =
+				Math.round(rawMinutes / MIN_DURATION) * MIN_DURATION;
+			const startHour = workdayStart + Math.floor(snapped / 60);
+			const startMinute = snapped % 60;
+
+			void this.handleDrop(dayIndex, startHour, startMinute);
+		});
+	}
+
+	/** Renders a horizontal line indicating the current time of day. */
+	private renderNowIndicator(
+		slots: HTMLElement,
+		workdayStart: number,
+		workdayEnd: number
+	): void {
+		const now = new Date();
+		const nowMinutes = now.getHours() * 60 + now.getMinutes();
+		const startMinutes = workdayStart * 60;
+		const endMinutes = workdayEnd * 60;
+
+		if (nowMinutes < startMinutes || nowMinutes > endMinutes) return;
+
+		const top = ((nowMinutes - startMinutes) / 60) * HOUR_HEIGHT;
+		const indicator = slots.createDiv('tb-now-line');
+		indicator.style.top = `${top}px`;
+	}
+
+	// ── Drop handling ──────────────────────────────────────────────────────────
+
+	private async handleDrop(
+		dayIndex: number,
+		startHour: number,
+		startMinute: number
+	): Promise<void> {
+		if (this.draggingTaskId) {
+			await this.scheduleTask(this.draggingTaskId, dayIndex, startHour, startMinute);
+		} else if (this.draggingBlockId) {
+			this.moveBlock(this.draggingBlockId, dayIndex, startHour, startMinute);
+		}
+
+		this.draggingTaskId = null;
+		this.draggingBlockId = null;
+
+		await this.plugin.saveBlocks();
+		await this.loadTasks();
+		this.renderBacklogList();
+		this.renderBlocks();
+	}
+
+	private async scheduleTask(
+		taskId: string,
+		dayIndex: number,
+		startHour: number,
+		startMinute: number
+	): Promise<void> {
+		// Find task in already-loaded backlog, or re-query
+		let task = this.backlogTasks.find((t) => t.id === taskId);
+		if (!task) {
+			const all = await queryTasks(this.app);
+			task = all.find((t) => t.id === taskId);
+		}
+		if (!task) return;
+
+		const block: ScheduledBlock = {
+			id: `block-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+			taskId,
+			title: task.title,
+			weekStart: formatDate(this.weekStart),
+			dayIndex,
+			startHour,
+			startMinute,
+			duration: this.plugin.settings.defaultTaskDuration,
+			color: this.plugin.settings.taskBlockColor,
+			source: 'task',
+		};
+		this.plugin.blocks.push(block);
+	}
+
+	private moveBlock(
+		blockId: string,
+		dayIndex: number,
+		startHour: number,
+		startMinute: number
+	): void {
+		const block = this.plugin.blocks.find((b) => b.id === blockId);
+		if (!block) return;
+		block.dayIndex = dayIndex;
+		block.startHour = startHour;
+		block.startMinute = startMinute;
+	}
+
+	// ── Block rendering ────────────────────────────────────────────────────────
+
+	/** Removes stale block elements and re-renders all blocks for the current week. */
+	renderBlocks(): void {
+		// Clear existing block elements
+		this.gridEl?.querySelectorAll('.tb-block').forEach((el) => el.remove());
+		this.gridEl?.querySelectorAll('.tb-now-line').forEach((el) => el.remove());
+
+		const { workdayStart, workdayEnd } = this.plugin.settings;
+		const weekKey = formatDate(this.weekStart);
+		const weekDays = getWeekDays(this.weekStart);
+
+		// Re-draw now indicator (it was inside slots, which we just cleared)
+		for (let d = 0; d < 7; d++) {
+			// weekDays always has exactly 7 elements; safe to assert non-null
+			if (isToday(weekDays[d] as Date)) {
+				const slotsEl = this.getDaySlots(d);
+				if (slotsEl) this.renderNowIndicator(slotsEl, workdayStart, workdayEnd);
+			}
+		}
+
+		// Scheduled task / manual blocks
+		for (const block of this.plugin.blocks) {
+			if (block.weekStart !== weekKey) continue;
+			this.renderBlock(block, workdayStart, workdayEnd);
+		}
+
+		// GCal events for this week
+		for (const event of this.gcalEvents) {
+			if (event.isAllDay) continue;
+
+			for (let d = 0; d < 7; d++) {
+				// weekDays always has exactly 7 elements; safe to assert non-null
+				const day = weekDays[d] as Date;
+				if (event.start.toDateString() !== day.toDateString()) continue;
+
+				const durationMins = Math.round(
+					(event.end.getTime() - event.start.getTime()) / 60_000
+				);
+
+				const gcalBlock: ScheduledBlock = {
+					id: `gcal-${event.id}-${d}`,
+					gcalEventId: event.id,
+					title: event.title,
+					weekStart: weekKey,
+					dayIndex: d,
+					startHour: event.start.getHours(),
+					startMinute: event.start.getMinutes(),
+					duration: durationMins,
+					color: this.plugin.settings.gcalEventColor,
+					source: 'gcal',
+				};
+				this.renderBlock(gcalBlock, workdayStart, workdayEnd);
+			}
+		}
+	}
+
+	private renderBlock(
+		block: ScheduledBlock,
+		workdayStart: number,
+		workdayEnd: number
+	): void {
+		const slotsEl = this.getDaySlots(block.dayIndex);
+		if (!slotsEl) return;
+
+		// Skip blocks that start outside the visible workday
+		if (block.startHour < workdayStart || block.startHour >= workdayEnd) return;
+
+		const topPx =
+			(block.startHour - workdayStart) * HOUR_HEIGHT +
+			(block.startMinute / 60) * HOUR_HEIGHT;
+		const heightPx = Math.max((block.duration / 60) * HOUR_HEIGHT, 18);
+
+		const blockEl = slotsEl.createDiv('tb-block');
+		if (block.source === 'gcal') blockEl.addClass('tb-block--gcal');
+		if (block.source === 'task') blockEl.addClass('tb-block--task');
+
+		blockEl.style.top = `${topPx}px`;
+		blockEl.style.height = `${heightPx}px`;
+		blockEl.style.backgroundColor = block.color;
+		blockEl.dataset.blockId = block.id;
+
+		blockEl.createDiv({ text: block.title, cls: 'tb-block-title' });
+
+		const startLabel = `${formatHour(block.startHour)}${block.startMinute > 0 ? `:${String(block.startMinute).padStart(2, '0')}` : ''}`;
+		blockEl.createDiv({
+			text: `${startLabel} · ${block.duration} min`,
+			cls: 'tb-block-time',
+		});
+
+		if (block.source !== 'gcal') {
+			// Make block draggable for repositioning
+			blockEl.setAttribute('draggable', 'true');
+			blockEl.addEventListener('dragstart', (e: DragEvent) => {
+				// Don't trigger if user clicked the resize handle
+				if ((e.target as HTMLElement).classList.contains('tb-resize-handle')) {
+					e.preventDefault();
+					return;
+				}
+				this.draggingBlockId = block.id;
+				this.draggingTaskId = null;
+				if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+				blockEl.addClass('tb-dragging');
+			});
+			blockEl.addEventListener('dragend', () =>
+				blockEl.removeClass('tb-dragging')
+			);
+
+			// Resize handle (bottom edge drag)
+			const handle = blockEl.createDiv('tb-resize-handle');
+			this.attachResizeHandler(handle, block, blockEl);
+
+			// Delete button
+			const del = blockEl.createDiv('tb-block-delete');
+			del.textContent = '×';
+			del.setAttribute('title', 'Remove from schedule');
+			del.addEventListener('click', (e: MouseEvent) => {
+				e.stopPropagation();
+				this.plugin.blocks = this.plugin.blocks.filter(
+					(b) => b.id !== block.id
+				);
+				void this.plugin.saveBlocks().then(() => {
+					void this.loadTasks().then(() => {
+						this.renderBacklogList();
+						this.renderBlocks();
+					});
+				});
+			});
+		}
+	}
+
+	/** Attaches mouse-based resize behaviour to the bottom drag handle. */
+	private attachResizeHandler(
+		handle: HTMLElement,
+		block: ScheduledBlock,
+		blockEl: HTMLElement
+	): void {
+		handle.addEventListener('mousedown', (e: MouseEvent) => {
+			e.preventDefault();
+			e.stopPropagation();
+
+			const startY = e.clientY;
+			const origDuration = block.duration;
+
+			const timeEl = blockEl.querySelector<HTMLElement>('.tb-block-time');
+
+			const onMove = (ev: MouseEvent) => {
+				const deltaY = ev.clientY - startY;
+				const deltaMins =
+					Math.round((deltaY / HOUR_HEIGHT) * 60 / MIN_DURATION) *
+					MIN_DURATION;
+				block.duration = Math.max(
+					MIN_DURATION,
+					origDuration + deltaMins
+				);
+				blockEl.style.height = `${(block.duration / 60) * HOUR_HEIGHT}px`;
+				if (timeEl) {
+					const startLabel = `${formatHour(block.startHour)}${block.startMinute > 0 ? `:${String(block.startMinute).padStart(2, '0')}` : ''}`;
+					timeEl.textContent = `${startLabel} · ${block.duration} min`;
+				}
+			};
+
+			const onUp = () => {
+				document.removeEventListener('mousemove', onMove);
+				document.removeEventListener('mouseup', onUp);
+				void this.plugin.saveBlocks();
+			};
+
+			document.addEventListener('mousemove', onMove);
+			document.addEventListener('mouseup', onUp);
+		});
+	}
+
+	// ── Helpers ────────────────────────────────────────────────────────────────
+
+	private getDaySlots(dayIndex: number): HTMLElement | null {
+		const col = this.gridEl?.querySelector(
+			`.tb-day-col[data-day-index="${dayIndex}"]`
+		);
+		return col ? (col.querySelector('.tb-slots') as HTMLElement) : null;
+	}
+}
+
+/** Returns `undefined` when the filter string is empty/whitespace. */
+function tagFilter(raw: string): string | undefined {
+	const trimmed = raw.trim();
+	return trimmed.length > 0 ? trimmed : undefined;
+}

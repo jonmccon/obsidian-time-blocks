@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "time-blocks",
+	"name": "Time Blocks",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "Weekly time-blocking canvas with Tasks-plugin backlog, drag-and-drop scheduling, and Google Calendar integration.",
+	"author": "jonmccon",
+	"authorUrl": "https://github.com/jonmccon/Obsidian-Time-Blocks",
 	"isDesktopOnly": false
 }
