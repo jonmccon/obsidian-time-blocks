@@ -267,7 +267,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 				.setName(tag)
 				.addColorPicker((picker) =>
 					picker
-						.setValue(tagColors[tag])
+						.setValue(tagColors[tag] ?? '')
 						.onChange(async (value) => {
 							this.plugin.settings.tagColors[tag] = value;
 							await this.plugin.saveSettings();
