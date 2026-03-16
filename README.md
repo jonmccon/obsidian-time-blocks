@@ -6,9 +6,10 @@ A weekly time-blocking plugin for [Obsidian](https://obsidian.md). Drag tasks fr
 
 - **Weekly calendar grid** — A 7-day time grid (Monday–Sunday) with configurable workday start/end hours and a current-time indicator.
 - **Task backlog sidebar** — Automatically scans your vault for tasks written in [Obsidian Tasks](https://obsidian-tasks-group.github.io/obsidian-tasks/) format (`- [ ] task text`) and displays them in a filterable sidebar, sorted by priority and due date.
+- **Configurable backlog** — Choose between showing all vault tasks or a custom query. The custom query uses a subset of the Obsidian Tasks community plugin query syntax, so users familiar with that plugin can reuse their knowledge.
 - **Drag-and-drop scheduling** — Drag tasks from the backlog onto the grid to schedule them. Once placed, blocks snap to 15-minute increments and can be repositioned by dragging again.
 - **Block resizing** — Drag the bottom edge of any scheduled block to change its duration.
-- **Google Calendar integration** — Paste a private ICS feed URL in settings to overlay your Google Calendar events on the grid (read-only).
+- **Google Calendar integration** — Paste a private ICS feed URL in settings to overlay your Google Calendar events on the grid (read-only, HTTPS only).
 - **Customizable colors** — Choose background colors for task blocks and calendar event blocks.
 - **Search & filter** — Filter the backlog by text, tag, or completion status.
 - **Week navigation** — Move between weeks or jump back to the current week.
@@ -27,19 +28,47 @@ A weekly time-blocking plugin for [Obsidian](https://obsidian.md). Drag tasks fr
 
 | Setting | Description | Default |
 |---|---|---|
-| **Calendar feed URL** | Private ICS feed URL from Google Calendar | *(empty)* |
+| **Calendar feed URL** | Private ICS feed URL from Google Calendar (HTTPS only) | *(empty)* |
 | **Workday start** | First hour shown on the grid (0–12) | 8 |
 | **Workday end** | Last hour shown on the grid (12–24) | 18 |
 | **Default task duration** | Duration in minutes when a task is first dropped (15–240) | 30 |
-| **Tag filter** | Only show tasks with this tag (e.g. `#work`). Leave blank for all. | *(empty)* |
-| **Show completed tasks** | Include tasks marked done in the backlog | Off |
+| **Backlog mode** | `All tasks` shows every task (with optional tag/completed filters). `Custom query` applies the multi-line query below. | All tasks |
+| **Tag filter** | *(All tasks mode)* Only show tasks with this tag (e.g. `#work`). Leave blank for all. | *(empty)* |
+| **Show completed tasks** | *(All tasks mode)* Include tasks marked done in the backlog | Off |
+| **Custom query** | *(Custom query mode)* Multi-line filter using Tasks-plugin-compatible syntax (see below) | *(empty)* |
 | **Task block color** | Background color for scheduled task blocks | `#7B61FF` |
 | **Google calendar event color** | Background color for calendar event blocks | `#4285F4` |
+
+### Custom query syntax
+
+When **Backlog mode** is set to *Custom query*, write one filter rule per line. Rules are ANDed together. Lines starting with `#` are treated as comments.
+
+| Rule | Example | Description |
+|---|---|---|
+| `not done` | `not done` | Only incomplete tasks |
+| `done` | `done` | Only completed tasks |
+| `due before <date>` | `due before 2025-06-01` | Due date is before the given date |
+| `due after <date>` | `due after 2025-01-01` | Due date is after the given date |
+| `due on <date>` | `due on 2025-03-15` | Due date matches exactly |
+| `path includes <text>` | `path includes projects/` | File path contains the text |
+| `path does not include <text>` | `path does not include archive` | File path does not contain the text |
+| `description includes <text>` | `description includes meeting` | Task title contains the text |
+| `description does not include <text>` | `description does not include template` | Task title does not contain the text |
+| `tag includes <tag>` | `tag includes #work` | Task has the specified tag |
+| `tag does not include <tag>` | `tag does not include #someday` | Task does not have the specified tag |
+| `priority is <level>` | `priority is high` | Exact priority match (highest, high, medium, low, lowest, none) |
+| `priority above <level>` | `priority above medium` | Priority is higher than the given level |
+| `priority below <level>` | `priority below medium` | Priority is lower than the given level |
+| `sort by <field>` | `sort by due` | Sort results (priority, due, or description) |
+| `limit to <N> tasks` | `limit to 20 tasks` | Cap the number of results |
+
+This syntax is a subset of the [Obsidian Tasks](https://obsidian-tasks-group.github.io/obsidian-tasks/) query language. Tasks written in the Tasks-plugin emoji format (`📅`, `⏫`, `🔼`, etc.) are parsed automatically regardless of whether the Tasks community plugin is installed.
 
 ## Known issues
 
 - **Recurring calendar events are not expanded.** The ICS parser does not process `RRULE` recurrence rules, so recurring Google Calendar events only appear for their original occurrence date and are missing on subsequent weeks.
 - **Timezone offsets in ICS feeds are approximated.** Events with `TZID` parameters are treated as local time rather than being converted from the specified timezone, which may cause events to display at incorrect times.
+- **Custom query unknown rules are silently ignored.** If a query line doesn't match any recognized rule pattern, it is skipped without an error message. Check spelling if a filter doesn't appear to work.
 
 ## Installing the plugin
 
