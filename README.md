@@ -72,13 +72,47 @@ This syntax is a subset of the [Obsidian Tasks](https://obsidian-tasks-group.git
 
 ## Installing the plugin
 
-Copy `main.js`, `styles.css`, and `manifest.json` into your vault at:
+This plugin is not yet listed in the Obsidian Community Plugins marketplace.
+The compiled `main.js` is not stored in the repository (it is a build artifact);
+choose one of the options below to install it.
 
-```
-<vault>/.obsidian/plugins/time-blocks/
-```
+### Option A — Build from source
 
-Then enable **Time Blocks** in *Settings → Community plugins*.
+1. Clone the repository and install dependencies:
+
+   ```bash
+   git clone https://github.com/jonmccon/Obsidian-Time-Blocks.git
+   cd Obsidian-Time-Blocks
+   npm install
+   npm run build
+   ```
+
+2. Copy `main.js`, `styles.css`, and `manifest.json` into your vault:
+
+   ```
+   <vault>/.obsidian/plugins/time-blocks/
+   ```
+
+3. Enable **Time Blocks** in *Settings → Community plugins*.
+
+### Option B — Download a release
+
+1. Go to the [Releases page](https://github.com/jonmccon/Obsidian-Time-Blocks/releases) and download the latest `main.js`, `styles.css`, and `manifest.json`.
+2. Copy them into your vault:
+
+   ```
+   <vault>/.obsidian/plugins/time-blocks/
+   ```
+
+3. Enable **Time Blocks** in *Settings → Community plugins*.
+
+### Option C — BRAT (beta users)
+
+If you have the [BRAT community plugin](https://github.com/TfTHacker/obsidian42-brat) installed:
+
+1. Open *Settings → BRAT → Add beta plugin*.
+2. Enter: `https://github.com/jonmccon/Obsidian-Time-Blocks`
+3. Click **Add plugin**, then enable **Time Blocks** in *Settings → Community plugins*.
 
 ## Development
 
@@ -108,3 +142,25 @@ installation. The test suite covers the utility modules (`weekUtils`,
 shapes. CI runs build, lint, and tests on every push and pull request.
 
 Requires Node.js v18 or later.
+
+### Project structure
+
+All source code is **TypeScript** in the `src/` directory.
+The build step (`npm run build`) type-checks the TypeScript and uses [esbuild](https://esbuild.github.io/) to bundle everything into a single `main.js` file at the repository root.
+That `main.js` is the file Obsidian loads at runtime — **not** the TypeScript sources.
+
+```
+src/
+  main.ts           # Plugin entry point (Plugin subclass, lifecycle hooks)
+  settings.ts       # Settings interface, defaults, and settings tab UI
+  types.ts          # Shared TypeScript interfaces (ScheduledBlock, TaskItem, GCalEvent)
+  utils/
+    icsParser.ts    # ICS/iCal feed parser
+    queryFilter.ts  # Tasks-plugin query parser and filter
+    taskQuery.ts    # Vault task scanner and query executor
+    weekUtils.ts    # Date helpers (week start, formatting, navigation)
+  views/
+    TimeBlockView.ts  # Full calendar view: rendering, drag-and-drop, resizing
+```
+
+`main.js` (the compiled bundle) and `node_modules/` are listed in `.gitignore` and are never committed to the repository.
