@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTaskLine } from '../src/utils/taskQuery';
+import { parseTaskLine, updateTaskLineCompletion } from '../src/utils/taskQuery';
 
 describe('parseTaskLine', () => {
 	it('parses a basic incomplete task', () => {
@@ -108,5 +108,22 @@ describe('parseTaskLine', () => {
 		expect(task?.tags).toContain('#devops');
 		expect(task?.filePath).toBe('projects/deploy.md');
 		expect(task?.lineNumber).toBe(42);
+	});
+});
+
+describe('updateTaskLineCompletion', () => {
+	it('marks incomplete tasks as complete', () => {
+		const updated = updateTaskLineCompletion('- [ ] Buy groceries', true);
+		expect(updated).toBe('- [x] Buy groceries');
+	});
+
+	it('marks completed tasks as incomplete', () => {
+		const updated = updateTaskLineCompletion('  - [x] Done task', false);
+		expect(updated).toBe('  - [ ] Done task');
+	});
+
+	it('returns null for non-task lines', () => {
+		const updated = updateTaskLineCompletion('Regular text', true);
+		expect(updated).toBeNull();
 	});
 });
