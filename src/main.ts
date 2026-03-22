@@ -83,8 +83,10 @@ export default class TimeBlockPlugin extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, raw.settings ?? {});
 		this.blocks = raw.blocks ?? [];
 
-		const legacyUrl = (raw.settings as { googleCalendarIcsUrl?: string } | undefined)
-			?.googleCalendarIcsUrl;
+		interface LegacySettings extends Partial<TimeBlockSettings> {
+			googleCalendarIcsUrl?: string;
+		}
+		const legacyUrl = (raw.settings as LegacySettings | undefined)?.googleCalendarIcsUrl;
 		if (legacyUrl && this.settings.calendarFeeds.length === 0) {
 			this.settings.calendarFeeds = [
 				{ id: createCalendarFeedId(), url: legacyUrl },

@@ -5,6 +5,10 @@ import { parseICS } from './utils/icsParser';
 /** Controls which tasks appear in the sidebar backlog. */
 export type BacklogMode = 'all' | 'custom';
 
+export function calendarFeedLabel(index: number): string {
+	return `Calendar feed ${index + 1}`;
+}
+
 export interface CalendarFeed {
 	id: string;
 	/** Private ICS feed URL. */
@@ -115,7 +119,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 		}
 
 		calendars.forEach((feed, index) => {
-			const label = `Calendar feed ${index + 1}`;
+			const label = calendarFeedLabel(index);
 			let draftUrl = feed.url;
 			let statusEl: HTMLElement;
 
@@ -438,8 +442,16 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 }
 
 export function createCalendarFeedId(): string {
-	const suffix = Math.random().toString(16).slice(2, 8);
-	return `calendar-${Date.now()}-${suffix}`;
+	const cryptoObj = globalThis.crypto;
+	if (cryptoObj?.randomUUID) {
+		return `calendar-${cryptoObj.randomUUID()}`;
+	}
+	const buffer = new Uint32Array(2);
+	cryptoObj?.getRandomValues?.(buffer);
+	const suffix = Array.from(buffer)
+		.map((value) => value.toString(16))
+		.join('');
+	return `calendar-${Date.now()}-${suffix || Math.random().toString(16).slice(2, 8)}`;
 }
 
 function setCalendarStatusEl(

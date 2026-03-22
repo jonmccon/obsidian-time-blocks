@@ -1,6 +1,6 @@
 import { ItemView, Notice, WorkspaceLeaf, requestUrl } from 'obsidian';
 import TimeBlockPlugin from '../main';
-import { TimeBlockSettings } from '../settings';
+import { calendarFeedLabel, TimeBlockSettings } from '../settings';
 import { GCalEvent, ScheduledBlock, TaskItem } from '../types';
 import { parseICS } from '../utils/icsParser';
 import { applyQuery, parseQuery } from '../utils/queryFilter';
@@ -123,7 +123,7 @@ export class TimeBlockView extends ItemView {
 				const url = feed.url.trim();
 				if (!url) return [];
 
-				const label = `Calendar feed ${index + 1}`;
+				const label = calendarFeedLabel(index);
 
 				// Security: only allow HTTPS URLs to prevent accidental fetches to
 				// local-network or non-encrypted endpoints.
