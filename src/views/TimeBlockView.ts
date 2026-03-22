@@ -476,7 +476,7 @@ export class TimeBlockView extends ItemView {
 		startMinute: number
 	): Promise<void> {
 		// Find task in already-loaded backlog, or re-query
-		let task = this.taskIndex.get(taskId) ?? this.backlogTasks.find((t) => t.id === taskId);
+		let task = this.taskIndex.get(taskId);
 		if (!task) {
 			const all = await scanAllTasks(this.app);
 			this.taskIndex = new Map(all.map((item) => [item.id, item]));
