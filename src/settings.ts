@@ -9,6 +9,8 @@ export function calendarFeedLabel(index: number): string {
 	return `Calendar feed ${index + 1}`;
 }
 
+let calendarFeedIdCounter = 0;
+
 export interface CalendarFeed {
 	id: string;
 	/** Private ICS feed URL. */
@@ -460,7 +462,8 @@ export function createCalendarFeedId(): string {
 	if (!suffix) {
 		suffix = Math.random().toString(16).slice(2, 10);
 	}
-	return `calendar-${Date.now()}-${suffix}`;
+	calendarFeedIdCounter += 1;
+	return `calendar-${Date.now()}-${calendarFeedIdCounter}-${suffix}`;
 }
 
 function setCalendarStatusEl(
