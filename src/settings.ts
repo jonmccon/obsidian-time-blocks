@@ -9,6 +9,8 @@ export function calendarFeedLabel(index: number): string {
 	return `Calendar feed ${index + 1}`;
 }
 
+let calendarFeedIdCounter = 0;
+
 export interface CalendarFeed {
 	id: string;
 	/** Private ICS feed URL. */
@@ -136,9 +138,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 					.setValue(feed.url)
 					.onChange((value) => {
 						draftUrl = value;
-						if (statusEl) {
-							this.setCalendarStatus(feed.id, 'idle', statusEl);
-						}
+						this.setCalendarStatus(feed.id, 'idle', statusEl);
 					})
 			);
 
@@ -451,7 +451,8 @@ export function createCalendarFeedId(): string {
 	const suffix = Array.from(buffer)
 		.map((value) => value.toString(16))
 		.join('');
-	return `calendar-${Date.now()}-${suffix || Math.random().toString(16).slice(2, 8)}`;
+	calendarFeedIdCounter += 1;
+	return `calendar-${Date.now()}-${calendarFeedIdCounter}-${suffix || Math.random().toString(16).slice(2, 8)}`;
 }
 
 function setCalendarStatusEl(

@@ -34,7 +34,10 @@ describe('DEFAULT_SETTINGS', () => {
 
 	it('creates calendar feed ids', () => {
 		const id = createCalendarFeedId();
+		const otherId = createCalendarFeedId();
 		expect(id).toMatch(/^calendar-/);
+		expect(otherId).toMatch(/^calendar-/);
+		expect(id).not.toBe(otherId);
 	});
 });
 

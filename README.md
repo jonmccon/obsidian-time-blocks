@@ -70,7 +70,7 @@ This syntax is a subset of the [Obsidian Tasks](https://obsidian-tasks-group.git
 - **Timezone offsets in ICS feeds are approximated.** Events with `TZID` parameters are treated as local time rather than being converted from the specified timezone, which may cause events to display at incorrect times.
 - **Custom query unknown rules are silently ignored.** If a query line doesn't match any recognized rule pattern, it is skipped without an error message. Check spelling if a filter doesn't appear to work.
 
-## Two-way sync requirements (future scope)
+## Two-Way Sync Requirements (Future Scope)
 
 Two-way sync (pushing scheduled tasks back into Google Calendar and updating task status) would require:
 
