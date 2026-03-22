@@ -596,6 +596,7 @@ export class TimeBlockView extends ItemView {
 		if (task?.completed) blockEl.addClass('tb-block--completed');
 
 		if (block.source === 'task' && block.taskId) {
+			const taskId = block.taskId;
 			const complete = header.createEl('input', {
 				cls: 'tb-block-complete',
 				attr: { type: 'checkbox', 'aria-label': 'Mark task complete' },
@@ -604,11 +605,12 @@ export class TimeBlockView extends ItemView {
 			complete.addEventListener('click', (e) => e.stopPropagation());
 			complete.addEventListener('change', (e) => {
 				e.stopPropagation();
-				void this.updateTaskCompletion(block.taskId ?? '', complete.checked);
+				void this.updateTaskCompletion(taskId, complete.checked);
 			});
 		}
 
 		if (block.source === 'task' && block.taskId) {
+			const taskId = block.taskId;
 			const titleButton = header.createEl('button', {
 				text: block.title,
 				cls: 'tb-block-title tb-block-title--link',
@@ -616,7 +618,7 @@ export class TimeBlockView extends ItemView {
 			});
 			titleButton.addEventListener('click', (e) => {
 				e.stopPropagation();
-				void this.openTaskSource(block.taskId ?? '');
+				void this.openTaskSource(taskId);
 			});
 		} else {
 			header.createDiv({
