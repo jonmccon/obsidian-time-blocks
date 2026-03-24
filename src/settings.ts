@@ -206,12 +206,33 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 
 		// ── "Custom query" mode controls ───────────────────────────────────
 		if (this.plugin.settings.backlogMode === 'custom') {
+			const queryDescription = document.createDocumentFragment();
+			const summary = document.createElement('p');
+			summary.textContent =
+				'One filter rule per line, using Obsidian Tasks query syntax. ' +
+				'Rules are ANDed together. Lines starting with # are comments.';
+			queryDescription.appendChild(summary);
+
+			const exampleLabel = document.createElement('p');
+			exampleLabel.textContent = 'Examples:';
+			queryDescription.appendChild(exampleLabel);
+
+			const examples = document.createElement('ul');
+			for (const example of [
+				'Not done',
+				'Due before 2025-12-31',
+				'Tag includes #work',
+				'Limit to 20 tasks',
+			]) {
+				const item = document.createElement('li');
+				item.textContent = example;
+				examples.appendChild(item);
+			}
+			queryDescription.appendChild(examples);
+
 			new Setting(containerEl)
 				.setName('Custom query')
-				.setDesc(
-					'One filter rule per line, using Obsidian Tasks query syntax. ' +
-					'Rules are ANDed together. Lines starting with # are comments.'
-				)
+				.setDesc(queryDescription)
 				.addTextArea((area) => {
 					area
 						.setPlaceholder('Enter query rules, one per line')
