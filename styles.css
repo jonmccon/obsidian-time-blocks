@@ -114,6 +114,17 @@
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
+.tb-task-header {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+}
+
+.tb-task-complete {
+	margin-top: 2px;
+	cursor: pointer;
+}
+
 .tb-task-prio {
 	font-size: 12px;
 	margin-right: 4px;
@@ -125,6 +136,23 @@
 	line-height: 1.4;
 	color: var(--text-normal);
 	word-break: break-word;
+	background: none;
+	border: none;
+	padding: 0;
+	text-align: left;
+	cursor: pointer;
+	flex: 1;
+	min-width: 0;
+}
+
+.tb-task-title:hover {
+	color: var(--text-accent);
+	text-decoration: underline;
+}
+
+.tb-task-item--completed .tb-task-title {
+	color: var(--text-muted);
+	text-decoration: line-through;
 }
 
 .tb-task-due {
@@ -362,6 +390,43 @@
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	background: none;
+	border: none;
+	padding: 0;
+	color: inherit;
+	text-align: left;
+	flex: 1;
+	min-width: 0;
+}
+
+.tb-block-title--link {
+	cursor: pointer;
+}
+
+.tb-block-title--link:hover {
+	text-decoration: underline;
+}
+
+.tb-block-title--static {
+	cursor: default;
+}
+
+.tb-block-header {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.tb-block-complete {
+	cursor: pointer;
+}
+
+.tb-block--completed {
+	opacity: 0.75;
+}
+
+.tb-block--completed .tb-block-title {
+	text-decoration: line-through;
 }
 
 .tb-block-time {
@@ -436,4 +501,3 @@
 	color: var(--tb-tag-color);
 	font-weight: 600;
 }
-

@@ -1,10 +1,17 @@
-import { ItemView, Notice, WorkspaceLeaf, requestUrl } from 'obsidian';
+import {
+	ItemView,
+	MarkdownView,
+	Notice,
+	TFile,
+	WorkspaceLeaf,
+	requestUrl,
+} from 'obsidian';
 import TimeBlockPlugin from '../main';
 import { TimeBlockSettings } from '../settings';
 import { GCalEvent, ScheduledBlock, TaskItem } from '../types';
 import { parseICS } from '../utils/icsParser';
 import { applyQuery, parseQuery } from '../utils/queryFilter';
-import { queryTasks, scanAllTasks } from '../utils/taskQuery';
+import { queryTasks, scanAllTasks, setTaskCompletion } from '../utils/taskQuery';
 import {
 	addWeeks,
 	formatDate,
@@ -29,6 +36,8 @@ export class TimeBlockView extends ItemView {
 	private weekStart: Date;
 	private gcalEvents: GCalEvent[] = [];
 	private backlogTasks: TaskItem[] = [];
+	/** Full task index for scheduled blocks, regardless of backlog filtering. */
+	private taskIndex = new Map<string, TaskItem>();
 
 	// Elements rebuilt on each render() call
 	private sidebarEl!: HTMLElement;
@@ -88,17 +97,23 @@ export class TimeBlockView extends ItemView {
 
 		let all: TaskItem[];
 
+		// Keep a full index for scheduled blocks even if the backlog is filtered.
+		const raw = await this.rebuildTaskIndex();
+
 		if (backlogMode === 'custom' && customTaskQuery.trim()) {
 			// Custom query mode: scan all tasks, then apply the user-defined query
-			const raw = await scanAllTasks(this.app);
 			const parsed = parseQuery(customTaskQuery);
 			all = applyQuery(raw, parsed);
 		} else {
 			// All-tasks mode (default): use tag filter + completed toggle
-			all = await queryTasks(this.app, {
-				showCompleted: showCompletedTasks,
-				tagFilter: tagFilter(taskTagFilter),
-			});
+			all = await queryTasks(
+				this.app,
+				{
+					showCompleted: showCompletedTasks,
+					tagFilter: tagFilter(taskTagFilter),
+				},
+				raw
+			);
 		}
 
 		// Filter out tasks that are already scheduled this week so the backlog
@@ -213,6 +228,7 @@ export class TimeBlockView extends ItemView {
 		el.setAttribute('draggable', 'true');
 		el.dataset.taskId = task.id;
 		el.setAttribute('title', `${task.filePath} : line ${task.lineNumber}`);
+		if (task.completed) el.addClass('tb-task-item--completed');
 
 		// Tag-color indicator bar (shows the color that will be used for the block)
 		const taskColor = resolveTaskColor(task, this.plugin.settings);
@@ -221,16 +237,36 @@ export class TimeBlockView extends ItemView {
 			indicator.setCssProps({ '--tb-tag-color': taskColor });
 		}
 
+		const header = el.createDiv('tb-task-header');
+		const complete = header.createEl('input', {
+			cls: 'tb-task-complete',
+			attr: { type: 'checkbox', 'aria-label': 'Mark task complete' },
+		});
+		complete.checked = task.completed;
+		complete.addEventListener('click', (e) => e.stopPropagation());
+		complete.addEventListener('change', (e) => {
+			e.stopPropagation();
+			void this.updateTaskCompletion(task.id, complete.checked);
+		});
+
 		// Priority indicator
 		if (task.priority !== undefined) {
 			const icons = ['', '🔺', '⏫', '🔼', '🔽', '⏬'];
-			el.createSpan({
+			header.createSpan({
 				text: icons[task.priority] ?? '',
 				cls: 'tb-task-prio',
 			});
 		}
 
-		el.createDiv({ text: task.title, cls: 'tb-task-title' });
+		const titleButton = header.createEl('button', {
+			text: task.title,
+			cls: 'tb-task-title',
+			attr: { type: 'button', 'aria-label': 'Open task in source file' },
+		});
+		titleButton.addEventListener('click', (e) => {
+			e.stopPropagation();
+			void this.openTaskSource(task.id);
+		});
 
 		if (task.dueDate) {
 			const dateEl = el.createDiv({
@@ -441,10 +477,10 @@ export class TimeBlockView extends ItemView {
 		startMinute: number
 	): Promise<void> {
 		// Find task in already-loaded backlog, or re-query
-		let task = this.backlogTasks.find((t) => t.id === taskId);
+		let task = this.taskIndex.get(taskId);
 		if (!task) {
-			const all = await scanAllTasks(this.app);
-			task = all.find((t) => t.id === taskId);
+			await this.rebuildTaskIndex();
+			task = this.taskIndex.get(taskId);
 		}
 		if (!task) return;
 
@@ -555,7 +591,38 @@ export class TimeBlockView extends ItemView {
 		blockEl.style.backgroundColor = block.color;
 		blockEl.dataset.blockId = block.id;
 
-		blockEl.createDiv({ text: block.title, cls: 'tb-block-title' });
+		const header = blockEl.createDiv('tb-block-header');
+		const task = block.taskId ? this.taskIndex.get(block.taskId) : undefined;
+		if (task?.completed) blockEl.addClass('tb-block--completed');
+
+		if (block.source === 'task' && block.taskId) {
+			const taskId = block.taskId;
+			const complete = header.createEl('input', {
+				cls: 'tb-block-complete',
+				attr: { type: 'checkbox', 'aria-label': 'Mark task complete' },
+			});
+			complete.checked = task?.completed ?? false;
+			complete.addEventListener('click', (e) => e.stopPropagation());
+			complete.addEventListener('change', (e) => {
+				e.stopPropagation();
+				void this.updateTaskCompletion(taskId, complete.checked);
+			});
+
+			const titleButton = header.createEl('button', {
+				text: block.title,
+				cls: 'tb-block-title tb-block-title--link',
+				attr: { type: 'button', 'aria-label': 'Open task in source file' },
+			});
+			titleButton.addEventListener('click', (e) => {
+				e.stopPropagation();
+				void this.openTaskSource(taskId);
+			});
+		} else {
+			header.createDiv({
+				text: block.title,
+				cls: 'tb-block-title tb-block-title--static',
+			});
+		}
 
 		blockEl.createDiv({
 			text: formatBlockTimeLabel(block),
@@ -642,6 +709,68 @@ export class TimeBlockView extends ItemView {
 	private async deleteBlock(blockId: string): Promise<void> {
 		this.plugin.blocks = this.plugin.blocks.filter((b) => b.id !== blockId);
 		await this.plugin.saveBlocks();
+		await this.loadTasks();
+		this.renderBacklogList();
+		this.renderBlocks();
+	}
+
+	private async resolveTask(taskId: string): Promise<TaskItem | null> {
+		const cached = this.taskIndex.get(taskId);
+		if (cached) return cached;
+		await this.rebuildTaskIndex();
+		return this.taskIndex.get(taskId) ?? null;
+	}
+
+	private async rebuildTaskIndex(): Promise<TaskItem[]> {
+		const raw = await scanAllTasks(this.app);
+		this.taskIndex = new Map(raw.map((task) => [task.id, task]));
+		return raw;
+	}
+
+	private async openTaskSource(taskId: string): Promise<void> {
+		const task = await this.resolveTask(taskId);
+		if (!task) {
+			new Notice('Time blocks: task not found.');
+			return;
+		}
+
+		const file = this.app.vault.getAbstractFileByPath(task.filePath);
+		if (!(file instanceof TFile)) {
+			new Notice('Time blocks: task file not found.');
+			return;
+		}
+
+		const lineIndex = Math.max(task.lineNumber - 1, 0);
+		const leaf = this.app.workspace.getLeaf('tab');
+		await leaf.openFile(file, { active: true, eState: { line: lineIndex, ch: 0 } });
+
+		const view = leaf.view;
+		if (view instanceof MarkdownView) {
+			view.editor.setCursor({ line: lineIndex, ch: 0 });
+			const centerOnLine = true;
+			view.editor.scrollIntoView(
+				{ from: { line: lineIndex, ch: 0 }, to: { line: lineIndex, ch: 0 } },
+				centerOnLine
+			);
+		}
+	}
+
+	private async updateTaskCompletion(
+		taskId: string,
+		completed: boolean
+	): Promise<void> {
+		const task = await this.resolveTask(taskId);
+		if (!task) {
+			new Notice('Time blocks: task not found.');
+			return;
+		}
+
+		const updated = await setTaskCompletion(this.app, task, completed);
+		if (!updated) {
+			new Notice('Time blocks: unable to update task.');
+			return;
+		}
+
 		await this.loadTasks();
 		this.renderBacklogList();
 		this.renderBlocks();

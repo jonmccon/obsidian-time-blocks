@@ -1,4 +1,4 @@
-import { App } from 'obsidian';
+import { App, TFile } from 'obsidian';
 import { TaskItem } from '../types';
 
 /**
@@ -15,6 +15,7 @@ const PRIORITY_MAP: Record<string, number> = {
 
 /** Regex that matches Tasks-plugin-style emoji priority markers. */
 const PRIORITY_REGEX = /[🔺⏫🔼🔽⏬]/u;
+const TASK_LINE_REGEX = /^(\s*-\s+\[)([ xX])(\]\s+.*)$/;
 
 /** Tries to parse a single markdown list line as a task item. */
 export function parseTaskLine(
@@ -72,6 +73,39 @@ export function parseTaskLine(
 	};
 }
 
+export function updateTaskLineCompletion(
+	line: string,
+	completed: boolean
+): string | null {
+	const match = line.match(TASK_LINE_REGEX);
+	if (!match) return null;
+	const marker = completed ? 'x' : ' ';
+	return `${match[1]}${marker}${match[3]}`;
+}
+
+export async function setTaskCompletion(
+	app: App,
+	task: TaskItem,
+	completed: boolean
+): Promise<boolean> {
+	const file = app.vault.getAbstractFileByPath(task.filePath);
+	if (!(file instanceof TFile)) return false;
+
+	const content = await app.vault.read(file);
+	const lines = content.split('\n');
+	const index = task.lineNumber - 1;
+	if (index < 0 || index >= lines.length) return false;
+
+	const currentLine = lines[index]!;
+	const updated = updateTaskLineCompletion(currentLine, completed);
+	if (!updated) return false;
+	if (updated === lines[index]) return true;
+
+	lines[index] = updated;
+	await app.vault.modify(file, lines.join('\n'));
+	return true;
+}
+
 export interface TaskQueryFilter {
 	/** When true, include completed tasks. Defaults to false. */
 	showCompleted?: boolean;
@@ -90,9 +124,10 @@ export interface TaskQueryFilter {
  */
 export async function queryTasks(
 	app: App,
-	filter: TaskQueryFilter = {}
+	filter: TaskQueryFilter = {},
+	sourceTasks?: TaskItem[]
 ): Promise<TaskItem[]> {
-	const all = await scanAllTasks(app);
+	const all = sourceTasks ?? (await scanAllTasks(app));
 
 	const filtered = all.filter((task) => {
 		if (!filter.showCompleted && task.completed) return false;
