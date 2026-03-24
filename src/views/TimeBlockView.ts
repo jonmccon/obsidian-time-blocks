@@ -91,6 +91,14 @@ export class TimeBlockView extends ItemView {
 		this.renderBlocks();
 	}
 
+	/** Triggers a two-way sync with Google Calendar for the current week. */
+	async triggerSync(): Promise<void> {
+		const weekKey = formatDate(this.weekStart);
+		await this.plugin.syncWeek(weekKey);
+		// Refresh the UI to reflect any changes from the sync
+		await this.refresh();
+	}
+
 	private async loadTasks(): Promise<void> {
 		const { backlogMode, showCompletedTasks, taskTagFilter, customTaskQuery } =
 			this.plugin.settings;
@@ -357,6 +365,18 @@ export class TimeBlockView extends ItemView {
 			text: '↻ refresh',
 		});
 		refreshBtn.addEventListener('click', () => void this.refresh());
+
+		// Two-way sync button (only shown when sync is enabled and authenticated)
+		if (
+			this.plugin.settings.enableTwoWaySync &&
+			this.plugin.settings.oauthTokens
+		) {
+			const syncBtn = nav.createEl('button', {
+				cls: 'tb-nav-btn tb-sync-btn',
+				text: '⇄ sync',
+			});
+			syncBtn.addEventListener('click', () => void this.triggerSync());
+		}
 	}
 
 	private navigateWeek(delta: number): void {

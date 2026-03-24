@@ -1,10 +1,14 @@
-import { Plugin } from 'obsidian';
+import { Notice, Plugin } from 'obsidian';
 import {
 	createCalendarFeedId,
 	DEFAULT_SETTINGS,
 	TimeBlockSettings,
 	TimeBlockSettingTab,
 } from './settings';
+import type { EventMapping } from './gcal/types';
+import type { OAuthTokens } from './gcal/types';
+import type { CalendarApiCallbacks } from './gcal/calendarApi';
+import { runSync } from './gcal/syncEngine';
 import { ScheduledBlock } from './types';
 import { TIME_BLOCK_VIEW_TYPE, TimeBlockView } from './views/TimeBlockView';
 
@@ -13,11 +17,17 @@ interface PersistedData {
 	version: number;
 	settings: Partial<TimeBlockSettings>;
 	blocks: ScheduledBlock[];
+	/** Mappings between local blocks and Google Calendar events. */
+	eventMappings?: EventMapping[];
 }
 
 export default class TimeBlockPlugin extends Plugin {
 	settings: TimeBlockSettings = { ...DEFAULT_SETTINGS };
 	blocks: ScheduledBlock[] = [];
+	/** Persisted mappings linking blocks ↔ Google Calendar events. */
+	eventMappings: EventMapping[] = [];
+	/** Guard to prevent concurrent sync operations. */
+	private syncing = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -52,6 +62,18 @@ export default class TimeBlockPlugin extends Plugin {
 			},
 		});
 
+		this.addCommand({
+			id: 'sync-calendar',
+			name: 'Sync calendar events',
+			callback: () => {
+				const views = this.app.workspace
+					.getLeavesOfType(TIME_BLOCK_VIEW_TYPE)
+					.map((l) => l.view)
+					.filter((v): v is TimeBlockView => v instanceof TimeBlockView);
+				views.forEach((v) => { void v.triggerSync(); });
+			},
+		});
+
 		// Settings tab
 		this.addSettingTab(new TimeBlockSettingTab(this.app, this));
 	}
@@ -72,6 +94,79 @@ export default class TimeBlockPlugin extends Plugin {
 		void workspace.revealLeaf(leaf);
 	}
 
+	// ── Two-way sync ──────────────────────────────────────────────────────────
+
+	/**
+	 * Builds the CalendarApiCallbacks object needed by the API client and sync
+	 * engine, wiring token storage through the plugin's settings.
+	 */
+	buildApiCallbacks(): CalendarApiCallbacks {
+		return {
+			getTokens: () => this.settings.oauthTokens,
+			saveTokens: async (tokens: OAuthTokens) => {
+				this.settings.oauthTokens = tokens;
+				await this.saveSettings();
+			},
+			clientId: this.settings.oauthClientId,
+		};
+	}
+
+	/**
+	 * Runs a two-way sync for the given week.
+	 * Called from the view when the user triggers a sync.
+	 */
+	async syncWeek(weekStart: string): Promise<void> {
+		if (!this.settings.enableTwoWaySync) return;
+		if (!this.settings.oauthTokens) {
+			new Notice('Time blocks: sign in to your calendar account first.');
+			return;
+		}
+		if (this.syncing) {
+			new Notice('Time blocks: sync already in progress.');
+			return;
+		}
+
+		this.syncing = true;
+		try {
+			const result = await runSync(
+				{
+					api: this.buildApiCallbacks(),
+					targetCalendarId: this.settings.syncCalendarId,
+					conflictStrategy: this.settings.conflictStrategy,
+					getBlocks: () => this.blocks,
+					setBlocks: (blocks) => { this.blocks = blocks; },
+					getMappings: () => this.eventMappings,
+					saveMappings: async (mappings) => {
+						this.eventMappings = mappings;
+						await this.saveData(this.buildPayload());
+					},
+				},
+				weekStart
+			);
+
+			// Summarize
+			const parts: string[] = [];
+			if (result.created > 0) parts.push(`${result.created} created`);
+			if (result.updated > 0) parts.push(`${result.updated} updated`);
+			if (result.deleted > 0) parts.push(`${result.deleted} deleted`);
+			if (result.conflicts.length > 0)
+				parts.push(`${result.conflicts.length} conflicts`);
+			if (result.errors.length > 0)
+				parts.push(`${result.errors.length} errors`);
+
+			const summary = parts.length > 0
+				? `Sync complete: ${parts.join(', ')}.`
+				: 'Sync complete: no changes.';
+			new Notice(`Time blocks: ${summary}`);
+
+			if (result.errors.length > 0) {
+				console.error('[Time Blocks] Sync errors:', result.errors);
+			}
+		} finally {
+			this.syncing = false;
+		}
+	}
+
 	// ── Persistence ────────────────────────────────────────────────────────────
 
 	/**
@@ -82,6 +177,7 @@ export default class TimeBlockPlugin extends Plugin {
 		const raw = (await this.loadData() ?? {}) as Partial<PersistedData>;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, raw.settings ?? {});
 		this.blocks = raw.blocks ?? [];
+		this.eventMappings = raw.eventMappings ?? [];
 
 		if (!Array.isArray(this.settings.calendarFeeds)) {
 			this.settings.calendarFeeds = [];
@@ -110,6 +206,11 @@ export default class TimeBlockPlugin extends Plugin {
 	}
 
 	private buildPayload(): PersistedData {
-		return { version: 1, settings: this.settings, blocks: this.blocks };
+		return {
+			version: 1,
+			settings: this.settings,
+			blocks: this.blocks,
+			eventMappings: this.eventMappings,
+		};
 	}
 }

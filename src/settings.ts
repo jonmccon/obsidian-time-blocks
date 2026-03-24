@@ -1,5 +1,14 @@
 import { App, Notice, PluginSettingTab, Setting, requestUrl } from 'obsidian';
 import TimeBlockPlugin from './main';
+import {
+	buildAuthUrl,
+	CALENDAR_SCOPES,
+	generateCodeChallenge,
+	generateCodeVerifier,
+	exchangeCodeForTokens,
+} from './gcal/auth';
+import { listCalendars } from './gcal/calendarApi';
+import type { ConflictStrategy, OAuthTokens } from './gcal/types';
 import { parseICS } from './utils/icsParser';
 
 /** Controls which tasks appear in the sidebar backlog. */
@@ -78,6 +87,29 @@ export interface TimeBlockSettings {
 	 *   limit to 20 tasks
 	 */
 	customTaskQuery: string;
+
+	// ── Two-way sync (Google Calendar API) ──────────────────────────────────
+
+	/** When true, two-way sync with the Google Calendar API is active. */
+	enableTwoWaySync: boolean;
+
+	/** Google Cloud Console OAuth 2.0 client ID (provided by the user). */
+	oauthClientId: string;
+
+	/** Stored OAuth tokens (access + refresh). `null` when not authenticated. */
+	oauthTokens: OAuthTokens | null;
+
+	/**
+	 * The Google Calendar ID to push scheduled blocks into.
+	 * Use `'primary'` for the user's main calendar.
+	 */
+	syncCalendarId: string;
+
+	/** How to resolve conflicts when the same event changed in both places. */
+	conflictStrategy: ConflictStrategy;
+
+	/** Calendars the user has explicitly allowed write access to (by calendar ID). */
+	writableCalendarIds: string[];
 }
 
 export const DEFAULT_SETTINGS: TimeBlockSettings = {
@@ -92,11 +124,18 @@ export const DEFAULT_SETTINGS: TimeBlockSettings = {
 	taskTagFilter: '',
 	backlogMode: 'all',
 	customTaskQuery: '',
+	enableTwoWaySync: false,
+	oauthClientId: '',
+	oauthTokens: null,
+	syncCalendarId: 'primary',
+	conflictStrategy: 'ask',
+	writableCalendarIds: [],
 };
 
 export class TimeBlockSettingTab extends PluginSettingTab {
 	plugin: TimeBlockPlugin;
 	private calendarConnectionStatus = new Map<string, CalendarConnectionStatus>();
+	private pendingCodeVerifier: string | null = null;
 
 	constructor(app: App, plugin: TimeBlockPlugin) {
 		super(app, plugin);
@@ -201,6 +240,145 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						this.display();
 					})
 			);
+
+		// ── Two-way sync ─────────────────────────────────────────────────────
+		new Setting(containerEl).setName('Two-way sync').setHeading();
+
+		new Setting(containerEl)
+			.setName('Enable two-way sync')
+			.setDesc(
+				'Push scheduled blocks to Google Calendar and pull remote changes. ' +
+				'Requires a Google Cloud Console OAuth client ID.'
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.enableTwoWaySync)
+					.onChange(async (value) => {
+						this.plugin.settings.enableTwoWaySync = value;
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+
+		if (this.plugin.settings.enableTwoWaySync) {
+			new Setting(containerEl)
+				.setName('Calendar API client ID')
+				.setDesc(
+					'Your cloud console OAuth 2.0 client ID. ' +
+					'Create one at console.cloud.google.com with the calendar API enabled.'
+				)
+				.addText((text) =>
+					text
+						.setPlaceholder('Your client ID')
+						.setValue(this.plugin.settings.oauthClientId)
+						.onChange(async (value) => {
+							this.plugin.settings.oauthClientId = value.trim();
+							await this.plugin.saveSettings();
+						})
+				);
+
+			const isAuthenticated = this.plugin.settings.oauthTokens !== null;
+
+			if (!isAuthenticated && this.plugin.settings.oauthClientId) {
+				this.buildOAuthSignInUI(containerEl);
+			}
+
+			if (isAuthenticated) {
+				new Setting(containerEl)
+					.setName('Calendar account')
+					.setDesc('Signed in to your calendar account.')
+					.addButton((btn) =>
+						btn
+							.setButtonText('Sign out')
+							.setWarning()
+							.onClick(async () => {
+								this.plugin.settings.oauthTokens = null;
+								await this.plugin.saveSettings();
+								new Notice('Time blocks: signed out of calendar.');
+								this.display();
+							})
+					);
+
+				new Setting(containerEl)
+					.setName('Target calendar')
+					.setDesc(
+						'Calendar to push scheduled blocks into. ' +
+						'Enter a calendar ID or use "primary" for your main calendar.'
+					)
+					.addText((text) =>
+						text
+							.setPlaceholder('Calendar ID or primary')
+							.setValue(this.plugin.settings.syncCalendarId)
+							.onChange(async (value) => {
+								this.plugin.settings.syncCalendarId = value.trim() || 'primary';
+								await this.plugin.saveSettings();
+							})
+					)
+					.addButton((btn) =>
+						btn
+							.setButtonText('List calendars')
+							.onClick(async () => {
+								try {
+									const cals = await listCalendars({
+										getTokens: () => this.plugin.settings.oauthTokens,
+										saveTokens: async (tokens: OAuthTokens) => {
+											this.plugin.settings.oauthTokens = tokens;
+											await this.plugin.saveSettings();
+										},
+										clientId: this.plugin.settings.oauthClientId,
+									});
+									const writable = cals.filter(
+										(c) => c.accessRole === 'writer' || c.accessRole === 'owner'
+									);
+									const names = writable
+										.map((c) => `${c.summary} (${c.id})`)
+										.join('\n');
+									new Notice(
+										`Time blocks: writable calendars:\n${names || 'None found.'}`,
+									);
+								} catch (err) {
+									new Notice(`Time blocks: failed to list calendars: ${String(err)}`);
+								}
+							})
+					);
+
+				new Setting(containerEl)
+					.setName('Conflict resolution')
+					.setDesc(
+						'How to handle events edited in both Obsidian and the calendar.'
+					)
+					.addDropdown((dropdown) =>
+						dropdown
+							.addOption('ask', 'Ask each time')
+							.addOption('local-wins', 'Local wins')
+							.addOption('remote-wins', 'Remote wins')
+							.setValue(this.plugin.settings.conflictStrategy)
+							.onChange(async (value) => {
+								this.plugin.settings.conflictStrategy = value as ConflictStrategy;
+								await this.plugin.saveSettings();
+							})
+					);
+
+				new Setting(containerEl)
+					.setName('Writable calendars')
+					.setDesc(
+						'Comma-separated list of calendar IDs the plugin is allowed to write to. ' +
+						'Leave empty to only write to the target calendar above.'
+					)
+					.addText((text) =>
+						text
+							.setPlaceholder('Comma-separated calendar ID list')
+							.setValue(this.plugin.settings.writableCalendarIds.join(', '))
+							.onChange(async (value) => {
+								this.plugin.settings.writableCalendarIds = value
+									.split(',')
+									.map((s) => s.trim())
+									.filter(Boolean);
+								await this.plugin.saveSettings();
+							})
+					);
+			}
+		}
 
 		// ── Grid ─────────────────────────────────────────────────────────────
 		new Setting(containerEl).setName('Time grid').setHeading();
@@ -431,6 +609,78 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							this.plugin.settings.taskBlockColor;
 						await this.plugin.saveSettings();
 						this.display();
+					})
+			);
+	}
+
+	private buildOAuthSignInUI(containerEl: HTMLElement): void {
+		let authCodeInput = '';
+
+		const signInSetting = new Setting(containerEl)
+			.setName('Calendar sign-in')
+			.setDesc(
+				'Click "Authorize" to open the sign-in page in your browser. ' +
+				'After granting access, paste the authorization code below.'
+			);
+
+		signInSetting.addButton((btn) =>
+			btn
+				.setButtonText('Authorize')
+				.setCta()
+				.onClick(async () => {
+					const verifier = generateCodeVerifier();
+					this.pendingCodeVerifier = verifier;
+					const challenge = await generateCodeChallenge(verifier);
+					const url = buildAuthUrl({
+						clientId: this.plugin.settings.oauthClientId,
+						codeChallenge: challenge,
+						scopes: CALENDAR_SCOPES,
+					});
+					window.open(url);
+				})
+		);
+
+		new Setting(containerEl)
+			.setName('Authorization code')
+			.setDesc('Paste the code you received here.')
+			.addText((text) =>
+				text
+					.setPlaceholder('Paste authorization code')
+					.onChange((value) => {
+						authCodeInput = value;
+					})
+			)
+			.addButton((btn) =>
+				btn
+					.setButtonText('Submit')
+					.setCta()
+					.onClick(async () => {
+						const code = authCodeInput.trim();
+						if (!code) {
+							new Notice('Time blocks: please enter the authorization code.');
+							return;
+						}
+						if (!this.pendingCodeVerifier) {
+							new Notice('Time blocks: click authorize first.');
+							return;
+						}
+
+						try {
+							const tokens = await exchangeCodeForTokens({
+								clientId: this.plugin.settings.oauthClientId,
+								code,
+								codeVerifier: this.pendingCodeVerifier,
+							});
+							this.plugin.settings.oauthTokens = tokens;
+							await this.plugin.saveSettings();
+							this.pendingCodeVerifier = null;
+							new Notice('Time blocks: signed in to calendar.');
+							this.display();
+						} catch (err) {
+							new Notice(
+								`Time blocks: authentication failed: ${String(err)}`
+							);
+						}
 					})
 			);
 	}

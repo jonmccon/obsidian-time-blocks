@@ -15,6 +15,13 @@ describe('DEFAULT_SETTINGS', () => {
 		expect(DEFAULT_SETTINGS.backlogMode).toBe('all');
 		expect(DEFAULT_SETTINGS.customTaskQuery).toBe('');
 		expect(DEFAULT_SETTINGS.tagColors).toEqual({});
+		// Two-way sync defaults
+		expect(DEFAULT_SETTINGS.enableTwoWaySync).toBe(false);
+		expect(DEFAULT_SETTINGS.oauthClientId).toBe('');
+		expect(DEFAULT_SETTINGS.oauthTokens).toBeNull();
+		expect(DEFAULT_SETTINGS.syncCalendarId).toBe('primary');
+		expect(DEFAULT_SETTINGS.conflictStrategy).toBe('ask');
+		expect(DEFAULT_SETTINGS.writableCalendarIds).toEqual([]);
 	});
 
 	it('workday start is before workday end', () => {
