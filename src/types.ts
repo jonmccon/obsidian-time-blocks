@@ -49,3 +49,11 @@ export interface GCalEvent {
 	description?: string;
 	location?: string;
 }
+
+/** Re-export sync-related types for convenience. */
+export type {
+	EventMapping,
+	SyncConflict,
+	SyncResult,
+	ConflictStrategy,
+} from './gcal/types';
