@@ -46,6 +46,10 @@ export class TimeBlockView extends ItemView {
 	private backlogListEl!: HTMLElement;
 	private searchInput!: HTMLInputElement;
 
+	// Quick-filter bar state (persists across re-renders)
+	private uiFilterStatus: 'all' | 'open' | 'done' = 'open';
+	private uiFilterSort: 'default' | 'priority' | 'due' | 'name' = 'default';
+
 	// Drag state
 	private draggingTaskId: string | null = null;
 	private draggingBlockId: string | null = null;
@@ -252,41 +256,126 @@ export class TimeBlockView extends ItemView {
 		this.searchInput = searchRow.createEl('input', {
 			type: 'text',
 			cls: 'tb-search-input',
-			placeholder: 'Filter tasks…',
+			placeholder: 'Filter tasks… (use #tag for tags)',
 		} as Parameters<typeof searchRow.createEl>[1]);
 		this.searchInput.addEventListener('input', () => this.renderBacklogList());
 
+		// Quick-filter bar
+		this.buildFilterBar();
+
 		// Scrollable task list
 		this.backlogListEl = this.sidebarEl.createDiv('tb-backlog-list');
+	}
+
+	/** Builds the status-pill + sort-select filter bar. */
+	private buildFilterBar(): void {
+		const bar = this.sidebarEl.createDiv('tb-filter-bar');
+
+		// ── Status pills ──────────────────────────────────────────────────────
+		const statusGroup = bar.createDiv('tb-filter-pill-group');
+
+		const statusOptions: Array<{ value: 'all' | 'open' | 'done'; label: string }> = [
+			{ value: 'open', label: 'Open' },
+			{ value: 'done', label: 'Done' },
+			{ value: 'all', label: 'All' },
+		];
+
+		for (const opt of statusOptions) {
+			const pill = statusGroup.createEl('button', {
+				text: opt.label,
+				cls: 'tb-filter-pill',
+				attr: { type: 'button', 'aria-label': `Show ${opt.label} tasks` },
+			});
+			if (this.uiFilterStatus === opt.value) pill.addClass('tb-filter-pill--active');
+
+			pill.addEventListener('click', () => {
+				this.uiFilterStatus = opt.value;
+				// Update active state on sibling pills
+				statusGroup.querySelectorAll('.tb-filter-pill').forEach((el, i) => {
+					el.toggleClass('tb-filter-pill--active', statusOptions[i]?.value === this.uiFilterStatus);
+				});
+				this.renderBacklogList();
+			});
+		}
+
+		// ── Sort select ───────────────────────────────────────────────────────
+		const sortSelect = bar.createEl('select', { cls: 'tb-filter-sort' }) as HTMLSelectElement;
+		sortSelect.setAttribute('aria-label', 'Sort tasks');
+
+		const sortOptions: Array<{ value: 'default' | 'priority' | 'due' | 'name'; label: string }> = [
+			{ value: 'default', label: 'Sort: default' },
+			{ value: 'priority', label: 'Sort: priority' },
+			{ value: 'due', label: 'Sort: due date' },
+			{ value: 'name', label: 'Sort: name' },
+		];
+
+		for (const opt of sortOptions) {
+			const option = sortSelect.createEl('option', { text: opt.label, value: opt.value });
+			if (this.uiFilterSort === opt.value) option.selected = true;
+		}
+
+		sortSelect.addEventListener('change', () => {
+			this.uiFilterSort = sortSelect.value as typeof this.uiFilterSort;
+			this.renderBacklogList();
+		});
 	}
 
 	private renderBacklogList(): void {
 		this.backlogListEl.empty();
 
 		const query = this.searchInput?.value?.toLowerCase() ?? '';
-		const visible = this.backlogTasks.filter((t) =>
+
+		// Apply text search
+		let visible = this.backlogTasks.filter((t) =>
 			t.title.toLowerCase().includes(query)
 		);
 
+		// Apply status filter
+		if (this.uiFilterStatus === 'open') {
+			visible = visible.filter((t) => !t.completed);
+		} else if (this.uiFilterStatus === 'done') {
+			visible = visible.filter((t) => t.completed);
+		}
+
+		const hasActiveFilter = query || this.uiFilterStatus !== 'all';
+
 		if (visible.length === 0) {
 			this.backlogListEl.createEl('p', {
-				text:
-					query
-						? 'No matching tasks.'
-						: 'No incomplete tasks found in the vault.',
+				text: hasActiveFilter
+					? 'No matching tasks.'
+					: 'No incomplete tasks found in the vault.',
 				cls: 'tb-empty-msg',
 			});
 			return;
 		}
 
-		// Overdue tasks (past scheduled date) bubble to the top
+		// Apply sort
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
-		const sorted = [...visible].sort((a, b) => {
-			const aOver = isTaskOverdue(a, today) ? 0 : 1;
-			const bOver = isTaskOverdue(b, today) ? 0 : 1;
-			return aOver - bOver;
-		});
+
+		let sorted: TaskItem[];
+		switch (this.uiFilterSort) {
+			case 'priority':
+				sorted = [...visible].sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
+				break;
+			case 'due':
+				sorted = [...visible].sort((a, b) => {
+					const da = a.dueDate?.getTime() ?? Infinity;
+					const db = b.dueDate?.getTime() ?? Infinity;
+					return da - db;
+				});
+				break;
+			case 'name':
+				sorted = [...visible].sort((a, b) => a.title.localeCompare(b.title));
+				break;
+			default:
+				// Default: overdue tasks (past scheduled date) bubble to the top
+				sorted = [...visible].sort((a, b) => {
+					const aOver = isTaskOverdue(a, today) ? 0 : 1;
+					const bOver = isTaskOverdue(b, today) ? 0 : 1;
+					return aOver - bOver;
+				});
+		}
 
 		for (const task of sorted) {
 			this.buildTaskItem(task, today);
