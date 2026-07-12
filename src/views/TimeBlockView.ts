@@ -47,7 +47,7 @@ export class TimeBlockView extends ItemView {
 	private searchInput!: HTMLInputElement;
 
 	// Quick-filter bar state (persists across re-renders)
-	private uiFilterStatus: 'all' | 'open' | 'done' = 'open';
+	private uiFilterStatus: 'all' | 'open' = 'open';
 	private uiFilterSort: 'default' | 'priority' | 'due' | 'name' = 'default';
 
 	// Drag state
@@ -274,11 +274,12 @@ export class TimeBlockView extends ItemView {
 		// ── Status pills ──────────────────────────────────────────────────────
 		const statusGroup = bar.createDiv('tb-filter-pill-group');
 
-		const statusOptions: Array<{ value: 'all' | 'open' | 'done'; label: string }> = [
+		const statusOptions: Array<{ value: 'all' | 'open'; label: string }> = [
 			{ value: 'open', label: 'Open' },
-			{ value: 'done', label: 'Done' },
 			{ value: 'all', label: 'All' },
 		];
+
+		const pills: HTMLElement[] = [];
 
 		for (const opt of statusOptions) {
 			const pill = statusGroup.createEl('button', {
@@ -287,13 +288,14 @@ export class TimeBlockView extends ItemView {
 				attr: { type: 'button', 'aria-label': `Show ${opt.label} tasks`, 'data-value': opt.value },
 			});
 			if (this.uiFilterStatus === opt.value) pill.addClass('tb-filter-pill--active');
+			pills.push(pill);
 
 			pill.addEventListener('click', () => {
 				this.uiFilterStatus = opt.value;
-				// Update active state on sibling pills using data-value attribute
-				statusGroup.querySelectorAll('.tb-filter-pill').forEach((el) => {
-					el.toggleClass('tb-filter-pill--active', el.getAttribute('data-value') === this.uiFilterStatus);
-				});
+				// Update active state using stored references (avoids querySelectorAll typing issues)
+				for (const p of pills) {
+					p.toggleClass('tb-filter-pill--active', p.getAttribute('data-value') === this.uiFilterStatus);
+				}
 				this.renderBacklogList();
 			});
 		}
@@ -333,8 +335,6 @@ export class TimeBlockView extends ItemView {
 		// Apply status filter
 		if (this.uiFilterStatus === 'open') {
 			visible = visible.filter((t) => !t.completed);
-		} else if (this.uiFilterStatus === 'done') {
-			visible = visible.filter((t) => t.completed);
 		}
 
 		// Show a context-aware empty message: use the friendly vault message only
