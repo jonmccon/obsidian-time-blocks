@@ -99,11 +99,26 @@ function addWeeks(date, n) {
 // ── Default placeholder data ─────────────────────────────────────────────────
 // Dates are ISO strings so they survive JSON round-trips through localStorage.
 
+// prettier-ignore
 const DEFAULT_TASKS = [
-	{ id: 'task-1', title: 'Write project proposal', dueDate: isoDate(7),  priority: 1, tags: ['#work', '#writing'], completed: false, color: '#7c3aed' },
-	{ id: 'task-2', title: 'Review pull requests',   dueDate: isoDate(0),  priority: 2, tags: ['#dev'],              completed: false, color: '#2563eb' },
-	{ id: 'task-3', title: 'Update documentation',   dueDate: isoDate(-1), priority: 3, tags: ['#dev', '#writing'],  completed: false, color: '#059669' },
-	{ id: 'task-4', title: 'Team standup prep',       dueDate: null,        priority: 4, tags: ['#meetings'],         completed: true,  color: '#d97706' },
+	// Scheduled tasks (have blocks in DEFAULT_BLOCKS_RAW)
+	{ id: 'task-1',  title: 'Write project proposal', dueDate: isoDate(7),  priority: 1, tags: ['#work', '#writing'],    completed: false, color: '#7c3aed' },
+	{ id: 'task-2',  title: 'Review pull requests',   dueDate: isoDate(0),  priority: 2, tags: ['#dev'],                 completed: false, color: '#2563eb' },
+	{ id: 'task-3',  title: 'Update documentation',   dueDate: isoDate(-1), priority: 3, tags: ['#dev', '#writing'],     completed: false, color: '#059669' },
+	// Completed task
+	{ id: 'task-4',  title: 'Team standup prep',       dueDate: null,        priority: 4, tags: ['#meetings'],            completed: true,  color: '#d97706' },
+	// Unscheduled backlog tasks — these appear in the sidebar for drag-and-drop
+	{ id: 'task-5',  title: 'Refactor auth module',    dueDate: isoDate(3),  priority: 1, tags: ['#dev', '#backend'],     completed: false, color: '#dc2626' },
+	{ id: 'task-6',  title: 'Write release notes',     dueDate: isoDate(5),  priority: 2, tags: ['#writing'],             completed: false, color: '#7c3aed' },
+	{ id: 'task-7',  title: 'Fix login page bug',      dueDate: isoDate(1),  priority: 1, tags: ['#dev', '#bug'],         completed: false, color: '#dc2626' },
+	{ id: 'task-8',  title: 'UX review meeting',       dueDate: isoDate(4),  priority: 3, tags: ['#meetings', '#design'], completed: false, color: '#0891b2' },
+	{ id: 'task-9',  title: 'Update dependencies',     dueDate: isoDate(6),  priority: 4, tags: ['#dev'],                 completed: false, color: '#059669' },
+	{ id: 'task-10', title: 'Onboard new teammate',    dueDate: isoDate(7),  priority: 2, tags: ['#work', '#meetings'],   completed: false, color: '#d97706' },
+	{ id: 'task-11', title: 'Q3 goals retrospective',  dueDate: isoDate(14), priority: 3, tags: ['#meetings'],            completed: false, color: '#db2777' },
+	{ id: 'task-12', title: 'Code review checklist',   dueDate: null,        priority: 3, tags: ['#dev', '#writing'],     completed: false, color: '#2563eb' },
+	{ id: 'task-13', title: 'Set up staging env',      dueDate: isoDate(10), priority: 2, tags: ['#dev', '#backend'],     completed: false, color: '#059669' },
+	{ id: 'task-14', title: 'Customer feedback call',  dueDate: isoDate(2),  priority: 2, tags: ['#meetings', '#work'],   completed: false, color: '#0891b2' },
+	{ id: 'task-15', title: 'Design system audit',     dueDate: isoDate(9),  priority: 4, tags: ['#design'],              completed: false, color: '#db2777' },
 ];
 
 // weekStart is injected at load time (current week's Monday).
