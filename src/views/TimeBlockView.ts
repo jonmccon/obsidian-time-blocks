@@ -301,7 +301,7 @@ export class TimeBlockView extends ItemView {
 		}
 
 		// ── Sort select ───────────────────────────────────────────────────────
-		const sortSelect = bar.createEl('select', { cls: 'tb-filter-sort' }) as HTMLSelectElement;
+		const sortSelect = bar.createEl('select', { cls: 'tb-filter-sort' });
 		sortSelect.setAttribute('aria-label', 'Sort tasks');
 
 		const sortOptions: Array<{ value: 'default' | 'priority' | 'due' | 'name'; label: string }> = [
