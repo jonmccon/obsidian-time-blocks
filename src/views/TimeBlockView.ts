@@ -284,15 +284,15 @@ export class TimeBlockView extends ItemView {
 			const pill = statusGroup.createEl('button', {
 				text: opt.label,
 				cls: 'tb-filter-pill',
-				attr: { type: 'button', 'aria-label': `Show ${opt.label} tasks` },
+				attr: { type: 'button', 'aria-label': `Show ${opt.label} tasks`, 'data-value': opt.value },
 			});
 			if (this.uiFilterStatus === opt.value) pill.addClass('tb-filter-pill--active');
 
 			pill.addEventListener('click', () => {
 				this.uiFilterStatus = opt.value;
-				// Update active state on sibling pills
-				statusGroup.querySelectorAll('.tb-filter-pill').forEach((el, i) => {
-					el.toggleClass('tb-filter-pill--active', statusOptions[i]?.value === this.uiFilterStatus);
+				// Update active state on sibling pills using data-value attribute
+				statusGroup.querySelectorAll('.tb-filter-pill').forEach((el) => {
+					el.toggleClass('tb-filter-pill--active', el.getAttribute('data-value') === this.uiFilterStatus);
 				});
 				this.renderBacklogList();
 			});
@@ -337,13 +337,15 @@ export class TimeBlockView extends ItemView {
 			visible = visible.filter((t) => t.completed);
 		}
 
-		const hasActiveFilter = query || this.uiFilterStatus !== 'all';
+		// Show a context-aware empty message: use the friendly vault message only
+		// when no text query is active and status is at its default ('open') state.
+		const isDefaultState = !query && this.uiFilterStatus === 'open';
 
 		if (visible.length === 0) {
 			this.backlogListEl.createEl('p', {
-				text: hasActiveFilter
-					? 'No matching tasks.'
-					: 'No incomplete tasks found in the vault.',
+				text: isDefaultState
+					? 'No incomplete tasks found in the vault.'
+					: 'No matching tasks.',
 				cls: 'tb-empty-msg',
 			});
 			return;
