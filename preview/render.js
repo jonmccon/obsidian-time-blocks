@@ -24,6 +24,14 @@ const STORAGE_KEY = 'time-blocks-preview';
 /** Priority icons matching the Tasks-plugin convention (index = priority level). */
 const PRIO_ICONS = ['', '🔺', '⏫', '🔼', '🔽', '⏬'];
 
+/**
+ * Snap `minutes` to the nearest MIN_DURATION boundary.
+ * Used for both absolute drop positions and resize deltas.
+ */
+function snapToGrid(minutes) {
+	return Math.round(minutes / MIN_DURATION) * MIN_DURATION;
+}
+
 // ── Date utilities ───────────────────────────────────────────────────────────
 
 function getWeekStart(date) {
@@ -297,13 +305,14 @@ function buildTaskItem(task) {
 
 	const itemHeader = div('tb-task-header');
 
-	// Checkbox — visual only; vault writes require Obsidian
+	// Checkbox — disabled in preview; vault writes require Obsidian
 	const checkbox = document.createElement('input');
 	checkbox.type = 'checkbox';
 	checkbox.className = 'tb-task-complete';
 	checkbox.checked = task.completed;
-	checkbox.title = 'Opens task file in Obsidian (not available in preview)';
-	checkbox.addEventListener('click', (e) => e.preventDefault());
+	checkbox.disabled = true;
+	checkbox.setAttribute('aria-label', 'Task completion requires Obsidian (not available in preview)');
+	checkbox.title = 'Task completion requires Obsidian (not available in preview)';
 	itemHeader.appendChild(checkbox);
 
 	// Priority icon
@@ -321,6 +330,9 @@ function buildTaskItem(task) {
 
 	// Due date
 	if (task.dueDate) {
+		// Append T00:00:00 so the date is parsed as local midnight rather than
+		// UTC midnight, which would shift the displayed date by ±1 day in most
+		// timezones when only the date portion is stored.
 		const due = new Date(task.dueDate + 'T00:00:00');
 		const dateEl = div('tb-task-due', `Due ${due.toLocaleDateString()}`);
 		const today = new Date();
@@ -434,11 +446,13 @@ function renderBlock(block, slotsEl) {
 	const header = div('tb-block-header');
 
 	if (block.source === 'task' && block.taskId) {
+		// Checkbox — disabled in preview; vault writes require Obsidian
 		const checkbox = document.createElement('input');
 		checkbox.type = 'checkbox';
 		checkbox.className = 'tb-block-complete';
-		checkbox.title = 'Opens task file in Obsidian (not available in preview)';
-		checkbox.addEventListener('click', (e) => e.preventDefault());
+		checkbox.disabled = true;
+		checkbox.setAttribute('aria-label', 'Task completion requires Obsidian (not available in preview)');
+		checkbox.title = 'Task completion requires Obsidian (not available in preview)';
 		header.appendChild(checkbox);
 
 		const titleLink = el('a', 'tb-block-title tb-block-title--link', block.title);
@@ -504,8 +518,7 @@ function attachResizeHandler(handle, block, blockEl, timeEl) {
 
 		const onMove = (ev) => {
 			const deltaY = ev.clientY - startY;
-			const deltaMins =
-				Math.round((deltaY / HOUR_HEIGHT) * 60 / MIN_DURATION) * MIN_DURATION;
+		const deltaMins = snapToGrid((deltaY / HOUR_HEIGHT) * 60);
 			block.duration = Math.max(MIN_DURATION, origDuration + deltaMins);
 			blockEl.style.height = `${(block.duration / 60) * HOUR_HEIGHT}px`;
 			if (timeEl) timeEl.textContent = formatBlockTimeLabel(block);
@@ -630,7 +643,7 @@ function buildGrid(weekStart) {
 
 			const rect = slots.getBoundingClientRect();
 			const rawMinutes = ((e.clientY - rect.top) / HOUR_HEIGHT) * 60;
-			const snapped = Math.round(rawMinutes / MIN_DURATION) * MIN_DURATION;
+			const snapped = snapToGrid(rawMinutes);
 			const startHour = WORKDAY_START + Math.floor(snapped / 60);
 			const startMinute = snapped % 60;
 
