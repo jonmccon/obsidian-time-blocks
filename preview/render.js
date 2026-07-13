@@ -256,8 +256,8 @@ function renderBacklogList(list, filterState) {
 			break;
 		default: // 'default': overdue first, then by due date, then by priority
 			tasks.sort((a, b) => {
-				const aOverdue = a.dueDate && new Date(a.dueDate) < today;
-				const bOverdue = b.dueDate && new Date(b.dueDate) < today;
+				const aOverdue = a.dueDate && a.dueDate < today;
+				const bOverdue = b.dueDate && b.dueDate < today;
 				if (aOverdue && !bOverdue) return -1;
 				if (!aOverdue && bOverdue) return 1;
 				if (a.dueDate && b.dueDate) return a.dueDate - b.dueDate;
@@ -298,7 +298,7 @@ function buildSidebar(root) {
 	const input = document.createElement('input');
 	input.type = 'text';
 	input.className = 'tb-search-input';
-	input.placeholder = 'Filter tasks… or #tag';
+	input.placeholder = 'Filter tasks... or #tag';
 	searchRow.appendChild(input);
 	sidebar.appendChild(searchRow);
 
@@ -337,10 +337,10 @@ function buildSidebar(root) {
 	sortSelect.className = 'tb-filter-sort';
 	sortSelect.setAttribute('aria-label', 'Sort tasks');
 	const sortOptions = [
-		{ value: 'default',  label: 'Sort: default'  },
-		{ value: 'priority', label: 'Sort: priority'  },
-		{ value: 'due',      label: 'Sort: due date'  },
-		{ value: 'name',     label: 'Sort: name'      },
+		{ value: 'default', label: 'Sort: default' },
+		{ value: 'priority', label: 'Sort: priority' },
+		{ value: 'due', label: 'Sort: due date' },
+		{ value: 'name', label: 'Sort: name' },
 	];
 	for (const opt of sortOptions) {
 		const option = document.createElement('option');
