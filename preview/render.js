@@ -153,6 +153,134 @@ function span(cls, text) { return el('span', cls, text); }
 
 // ── Sidebar builder ──────────────────────────────────────────────────────────
 
+/** Render a single task card into `list`, respecting the current filter query. */
+function renderTaskItem(task, list) {
+	const item = div('tb-task-item');
+	item.setAttribute('draggable', 'true');
+	item.dataset.taskId = task.id;
+	if (task.completed) item.classList.add('tb-task-item--completed');
+
+	// Color indicator bar
+	if (task.color) {
+		const indicator = div('tb-tag-color-indicator');
+		indicator.style.setProperty('--tb-tag-color', task.color);
+		item.appendChild(indicator);
+		item.style.position = 'relative';
+		item.style.paddingLeft = '11px';
+	}
+
+	const itemHeader = div('tb-task-header');
+
+	// Checkbox
+	const checkbox = document.createElement('input');
+	checkbox.type = 'checkbox';
+	checkbox.className = 'tb-task-complete';
+	checkbox.checked = task.completed;
+	itemHeader.appendChild(checkbox);
+
+	// Priority icon
+	if (task.priority !== undefined) {
+		itemHeader.appendChild(span('tb-task-prio', PRIO_ICONS[task.priority] ?? ''));
+	}
+
+	// Title
+	const titleLink = el('a', 'tb-task-title', task.title);
+	titleLink.href = '#';
+	titleLink.title = 'Open task (demo)';
+	titleLink.addEventListener('click', (e) => e.preventDefault());
+	itemHeader.appendChild(titleLink);
+	item.appendChild(itemHeader);
+
+	// Due date
+	if (task.dueDate) {
+		const dateEl = div('tb-task-due', `Due ${task.dueDate.toLocaleDateString()}`);
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+		const due = new Date(task.dueDate);
+		due.setHours(0, 0, 0, 0);
+		if (due < today) dateEl.classList.add('tb-overdue');
+		item.appendChild(dateEl);
+	}
+
+	// Tags
+	if (task.tags.length > 0) {
+		const tagsEl = div('tb-task-tags');
+		for (const tag of task.tags) {
+			const tagSpan = span('tb-tag tb-tag--colored', tag);
+			tagSpan.style.setProperty('--tb-tag-color', task.color);
+			tagsEl.appendChild(tagSpan);
+		}
+		item.appendChild(tagsEl);
+	}
+
+	list.appendChild(item);
+}
+
+/** Re-render the backlog list based on current filter/sort state. */
+function renderBacklogList(list, filterState) {
+	list.innerHTML = '';
+
+	const query = filterState.searchQuery.toLowerCase();
+
+	// Status filter
+	let tasks = filterState.status === 'open'
+		? PLACEHOLDER_TASKS.filter((t) => !t.completed)
+		: PLACEHOLDER_TASKS.slice();
+
+	// Text / tag search
+	if (query) {
+		tasks = tasks.filter((t) =>
+			t.title.toLowerCase().includes(query) ||
+			t.tags.some((tag) => tag.toLowerCase().includes(query))
+		);
+	}
+
+	// Sort
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
+
+	switch (filterState.sort) {
+		case 'priority':
+			tasks.sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
+			break;
+		case 'due':
+			tasks.sort((a, b) => {
+				if (!a.dueDate && !b.dueDate) return 0;
+				if (!a.dueDate) return 1;
+				if (!b.dueDate) return -1;
+				return a.dueDate - b.dueDate;
+			});
+			break;
+		case 'name':
+			tasks.sort((a, b) => a.title.localeCompare(b.title));
+			break;
+		default: // 'default': overdue first, then by due date, then by priority
+			tasks.sort((a, b) => {
+				const aOverdue = a.dueDate && new Date(a.dueDate) < today;
+				const bOverdue = b.dueDate && new Date(b.dueDate) < today;
+				if (aOverdue && !bOverdue) return -1;
+				if (!aOverdue && bOverdue) return 1;
+				if (a.dueDate && b.dueDate) return a.dueDate - b.dueDate;
+				if (a.dueDate) return -1;
+				if (b.dueDate) return 1;
+				return (a.priority ?? 999) - (b.priority ?? 999);
+			});
+	}
+
+	if (tasks.length === 0) {
+		const empty = div('tb-empty-msg');
+		empty.textContent = query || filterState.status !== 'open'
+			? 'No tasks match the current filter.'
+			: 'No open tasks.';
+		list.appendChild(empty);
+		return;
+	}
+
+	for (const task of tasks) {
+		renderTaskItem(task, list);
+	}
+}
+
 function buildSidebar(root) {
 	const sidebar = div('tb-sidebar');
 	root.appendChild(sidebar);
@@ -170,75 +298,77 @@ function buildSidebar(root) {
 	const input = document.createElement('input');
 	input.type = 'text';
 	input.className = 'tb-search-input';
-	input.placeholder = 'Filter tasks…';
+	input.placeholder = 'Filter tasks… or #tag';
 	searchRow.appendChild(input);
 	sidebar.appendChild(searchRow);
+
+	// ── Filter bar (mirrors TimeBlockView.buildFilterBar) ────────────────────
+	const filterState = { status: 'open', sort: 'default', searchQuery: '' };
+
+	const bar = div('tb-filter-bar');
+
+	// Status pills
+	const pillGroup = div('tb-filter-pill-group');
+	const statusOptions = [
+		{ value: 'open', label: 'Open' },
+		{ value: 'all',  label: 'All'  },
+	];
+	const pills = [];
+	for (const opt of statusOptions) {
+		const pill = el('button', 'tb-filter-pill', opt.label);
+		pill.type = 'button';
+		pill.setAttribute('aria-label', `Show ${opt.label} tasks`);
+		pill.setAttribute('data-value', opt.value);
+		if (filterState.status === opt.value) pill.classList.add('tb-filter-pill--active');
+		pills.push(pill);
+		pill.addEventListener('click', () => {
+			filterState.status = opt.value;
+			for (const p of pills) {
+				p.classList.toggle('tb-filter-pill--active', p.getAttribute('data-value') === filterState.status);
+			}
+			renderBacklogList(list, filterState);
+		});
+		pillGroup.appendChild(pill);
+	}
+	bar.appendChild(pillGroup);
+
+	// Sort dropdown
+	const sortSelect = document.createElement('select');
+	sortSelect.className = 'tb-filter-sort';
+	sortSelect.setAttribute('aria-label', 'Sort tasks');
+	const sortOptions = [
+		{ value: 'default',  label: 'Sort: default'  },
+		{ value: 'priority', label: 'Sort: priority'  },
+		{ value: 'due',      label: 'Sort: due date'  },
+		{ value: 'name',     label: 'Sort: name'      },
+	];
+	for (const opt of sortOptions) {
+		const option = document.createElement('option');
+		option.value = opt.value;
+		option.textContent = opt.label;
+		if (filterState.sort === opt.value) option.selected = true;
+		sortSelect.appendChild(option);
+	}
+	sortSelect.addEventListener('change', () => {
+		filterState.sort = sortSelect.value;
+		renderBacklogList(list, filterState);
+	});
+	bar.appendChild(sortSelect);
+
+	sidebar.appendChild(bar);
 
 	// Task list
 	const list = div('tb-backlog-list');
 	sidebar.appendChild(list);
 
-	for (const task of PLACEHOLDER_TASKS) {
-		const item = div('tb-task-item');
-		item.setAttribute('draggable', 'true');
-		item.dataset.taskId = task.id;
-		if (task.completed) item.classList.add('tb-task-item--completed');
+	// Wire up live search
+	input.addEventListener('input', () => {
+		filterState.searchQuery = input.value;
+		renderBacklogList(list, filterState);
+	});
 
-		// Color indicator bar
-		if (task.color) {
-			const indicator = div('tb-tag-color-indicator');
-			indicator.style.setProperty('--tb-tag-color', task.color);
-			item.appendChild(indicator);
-			item.style.position = 'relative';
-			item.style.paddingLeft = '11px';
-		}
-
-		const itemHeader = div('tb-task-header');
-
-		// Checkbox
-		const checkbox = document.createElement('input');
-		checkbox.type = 'checkbox';
-		checkbox.className = 'tb-task-complete';
-		checkbox.checked = task.completed;
-		itemHeader.appendChild(checkbox);
-
-		// Priority icon
-		if (task.priority !== undefined) {
-			itemHeader.appendChild(span('tb-task-prio', PRIO_ICONS[task.priority] ?? ''));
-		}
-
-		// Title
-		const titleLink = el('a', 'tb-task-title', task.title);
-		titleLink.href = '#';
-		titleLink.title = 'Open task (demo)';
-		titleLink.addEventListener('click', (e) => e.preventDefault());
-		itemHeader.appendChild(titleLink);
-		item.appendChild(itemHeader);
-
-		// Due date
-		if (task.dueDate) {
-			const dateEl = div('tb-task-due', `Due ${task.dueDate.toLocaleDateString()}`);
-			const today = new Date();
-			today.setHours(0, 0, 0, 0);
-			const due = new Date(task.dueDate);
-			due.setHours(0, 0, 0, 0);
-			if (due < today) dateEl.classList.add('tb-overdue');
-			item.appendChild(dateEl);
-		}
-
-		// Tags
-		if (task.tags.length > 0) {
-			const tagsEl = div('tb-task-tags');
-			for (const tag of task.tags) {
-				const tagSpan = span('tb-tag tb-tag--colored', tag);
-				tagSpan.style.setProperty('--tb-tag-color', task.color);
-				tagsEl.appendChild(tagSpan);
-			}
-			item.appendChild(tagsEl);
-		}
-
-		list.appendChild(item);
-	}
+	// Initial render
+	renderBacklogList(list, filterState);
 
 	return sidebar;
 }
