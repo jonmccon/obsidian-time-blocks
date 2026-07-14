@@ -73,7 +73,7 @@ jobs:
                         '',
                         `_Also available as a [downloadable artifact](${runUrl}) (\`preview-pr${prNum}\`) for offline viewing._`,
                         '',
-                        '> Preview uses hardcoded placeholder tasks and blocks — no vault or Obsidian needed.',
+                        '> Preview uses an in-browser demo store (localStorage) with sample tasks and blocks — no vault or Obsidian needed.',
                         '> This page is automatically removed when the PR is closed.',
                       ].join('\n');
 

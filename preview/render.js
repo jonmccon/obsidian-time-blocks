@@ -2,8 +2,10 @@
  * preview/render.js
  *
  * Self-contained DOM builder that replicates the TimeBlockView / DayView
- * HTML structure using hardcoded placeholder data.  No bundler, no Obsidian
- * required — just open index.html in any browser.
+ * HTML structure with a fully interactive in-memory store.  All state is
+ * persisted to localStorage (key: "time-blocks-preview") so changes survive
+ * page refreshes.  No bundler, no Obsidian required — open index.html in
+ * any browser.
  *
  * Mirrors the constants and helpers from:
  *   src/views/TimeBlockView.ts  (HOUR_HEIGHT, DAY_HEADER_HEIGHT, renderBlock …)
@@ -12,21 +14,29 @@
 
 // ── Constants (mirrors TimeBlockView.ts) ────────────────────────────────────
 
-const HOUR_HEIGHT = 60;      // px per hour  (1 px ≈ 1 minute)
-const MIN_DURATION = 15;     // minimum block height in minutes
+const HOUR_HEIGHT = 60;        // px per hour  (1 px ≈ 1 minute)
+const MIN_DURATION = 15;       // minimum block duration in minutes
 const DAY_HEADER_HEIGHT = 44;
-const WORKDAY_START = 8;     // 8 AM
-const WORKDAY_END = 18;      // 6 PM
+const WORKDAY_START = 8;       // 8 AM
+const WORKDAY_END = 18;        // 6 PM
+const STORAGE_KEY = 'time-blocks-preview';
 
 /** Priority icons matching the Tasks-plugin convention (index = priority level). */
 const PRIO_ICONS = ['', '🔺', '⏫', '🔼', '🔽', '⏬'];
 
-// ── Placeholder data ────────────────────────────────────────────────────────
+/**
+ * Snap `minutes` to the nearest MIN_DURATION boundary.
+ * Used for both absolute drop positions and resize deltas.
+ */
+function snapToGrid(minutes) {
+	return Math.round(minutes / MIN_DURATION) * MIN_DURATION;
+}
 
-/** Build a week-of-days array anchored to the current Monday. */
+// ── Date utilities ───────────────────────────────────────────────────────────
+
 function getWeekStart(date) {
 	const d = new Date(date);
-	const day = d.getDay(); // 0=Sun
+	const day = d.getDay(); // 0 = Sun
 	const diff = day === 0 ? -6 : 1 - day;
 	d.setDate(d.getDate() + diff);
 	d.setHours(0, 0, 0, 0);
@@ -72,74 +82,127 @@ function formatBlockTimeLabel(block) {
 	return `${pad(block.startHour)}:${pad(block.startMinute)} – ${pad(endHour)}:${pad(endMin)}`;
 }
 
-// ── Placeholder backlog tasks ────────────────────────────────────────────────
+/** Returns an ISO date string (YYYY-MM-DD) offset by `days` from today. */
+function isoDate(offsetDays) {
+	const d = new Date();
+	d.setDate(d.getDate() + offsetDays);
+	return formatDate(d);
+}
 
-const TODAY = new Date();
-const NEXT_WEEK = new Date(TODAY);
-NEXT_WEEK.setDate(TODAY.getDate() + 7);
-const YESTERDAY = new Date(TODAY);
-YESTERDAY.setDate(TODAY.getDate() - 1);
+/** Returns a new Date `n` weeks ahead of `date`. */
+function addWeeks(date, n) {
+	const d = new Date(date);
+	d.setDate(d.getDate() + n * 7);
+	return d;
+}
 
-const PLACEHOLDER_TASKS = [
-	{
-		id: 'task-1',
-		title: 'Write project proposal',
-		dueDate: NEXT_WEEK,
-		priority: 1,
-		tags: ['#work', '#writing'],
-		completed: false,
-		color: '#7c3aed',
-	},
-	{
-		id: 'task-2',
-		title: 'Review pull requests',
-		dueDate: TODAY,
-		priority: 2,
-		tags: ['#dev'],
-		completed: false,
-		color: '#2563eb',
-	},
-	{
-		id: 'task-3',
-		title: 'Update documentation',
-		dueDate: YESTERDAY,
-		priority: 3,
-		tags: ['#dev', '#writing'],
-		completed: false,
-		color: '#059669',
-	},
-	{
-		id: 'task-4',
-		title: 'Team standup prep',
-		dueDate: null,
-		priority: 4,
-		tags: ['#meetings'],
-		completed: true,
-		color: '#d97706',
-	},
+// ── Default placeholder data ─────────────────────────────────────────────────
+// Dates are ISO strings so they survive JSON round-trips through localStorage.
+
+// prettier-ignore
+const DEFAULT_TASKS = [
+	// Scheduled tasks (have blocks in DEFAULT_BLOCKS_RAW)
+	{ id: 'task-1',  title: 'Write project proposal', dueDate: isoDate(7),  priority: 1, tags: ['#work', '#writing'],    completed: false, color: '#7c3aed' },
+	{ id: 'task-2',  title: 'Review pull requests',   dueDate: isoDate(0),  priority: 2, tags: ['#dev'],                 completed: false, color: '#2563eb' },
+	{ id: 'task-3',  title: 'Update documentation',   dueDate: isoDate(-1), priority: 3, tags: ['#dev', '#writing'],     completed: false, color: '#059669' },
+	// Completed task
+	{ id: 'task-4',  title: 'Team standup prep',       dueDate: null,        priority: 4, tags: ['#meetings'],            completed: true,  color: '#d97706' },
+	// Unscheduled backlog tasks — these appear in the sidebar for drag-and-drop
+	{ id: 'task-5',  title: 'Refactor auth module',    dueDate: isoDate(3),  priority: 1, tags: ['#dev', '#backend'],     completed: false, color: '#dc2626' },
+	{ id: 'task-6',  title: 'Write release notes',     dueDate: isoDate(5),  priority: 2, tags: ['#writing'],             completed: false, color: '#7c3aed' },
+	{ id: 'task-7',  title: 'Fix login page bug',      dueDate: isoDate(1),  priority: 1, tags: ['#dev', '#bug'],         completed: false, color: '#dc2626' },
+	{ id: 'task-8',  title: 'UX review meeting',       dueDate: isoDate(4),  priority: 3, tags: ['#meetings', '#design'], completed: false, color: '#0891b2' },
+	{ id: 'task-9',  title: 'Update dependencies',     dueDate: isoDate(6),  priority: 4, tags: ['#dev'],                 completed: false, color: '#059669' },
+	{ id: 'task-10', title: 'Onboard new teammate',    dueDate: isoDate(7),  priority: 2, tags: ['#work', '#meetings'],   completed: false, color: '#d97706' },
+	{ id: 'task-11', title: 'Q3 goals retrospective',  dueDate: isoDate(14), priority: 3, tags: ['#meetings'],            completed: false, color: '#db2777' },
+	{ id: 'task-12', title: 'Code review checklist',   dueDate: null,        priority: 3, tags: ['#dev', '#writing'],     completed: false, color: '#2563eb' },
+	{ id: 'task-13', title: 'Set up staging env',      dueDate: isoDate(10), priority: 2, tags: ['#dev', '#backend'],     completed: false, color: '#059669' },
+	{ id: 'task-14', title: 'Customer feedback call',  dueDate: isoDate(2),  priority: 2, tags: ['#meetings', '#work'],   completed: false, color: '#0891b2' },
+	{ id: 'task-15', title: 'Design system audit',     dueDate: isoDate(9),  priority: 4, tags: ['#design'],              completed: false, color: '#db2777' },
 ];
 
-// ── Placeholder scheduled blocks ─────────────────────────────────────────────
-// dayIndex: 0=Mon … 6=Sun; weekStart is dynamically computed below.
-
-const PLACEHOLDER_BLOCKS = [
+// weekStart is injected at load time (current week's Monday).
+const DEFAULT_BLOCKS_RAW = [
 	// Monday: deep work 9–11
-	{ id: 'b1', taskId: 'task-1', title: 'Write project proposal', dayIndex: 0, startHour: 9,  startMinute: 0,  duration: 120, color: '#7c3aed', source: 'task' },
+	{ id: 'b1', taskId: 'task-1', title: 'Write project proposal', dayIndex: 0, startHour: 9,  startMinute: 0,  duration: 120, color: '#7c3aed', source: 'task'   },
 	// Monday: standup 10–10:30
 	{ id: 'b2', taskId: null,     title: 'Team standup',           dayIndex: 0, startHour: 10, startMinute: 0,  duration: 30,  color: '#d97706', source: 'manual' },
 	// Tuesday: PR review 9–10
-	{ id: 'b3', taskId: 'task-2', title: 'Review pull requests',   dayIndex: 1, startHour: 9,  startMinute: 0,  duration: 60,  color: '#2563eb', source: 'task' },
+	{ id: 'b3', taskId: 'task-2', title: 'Review pull requests',   dayIndex: 1, startHour: 9,  startMinute: 0,  duration: 60,  color: '#2563eb', source: 'task'   },
 	// Tuesday: GCal event 14–15
-	{ id: 'b4', taskId: null,     title: 'Design review (GCal)',   dayIndex: 1, startHour: 14, startMinute: 0,  duration: 60,  color: '#0891b2', source: 'gcal' },
+	{ id: 'b4', taskId: null,     title: 'Design review (GCal)',   dayIndex: 1, startHour: 14, startMinute: 0,  duration: 60,  color: '#0891b2', source: 'gcal'   },
 	// Wednesday: docs 11–12:30
-	{ id: 'b5', taskId: 'task-3', title: 'Update documentation',   dayIndex: 2, startHour: 11, startMinute: 0,  duration: 90,  color: '#059669', source: 'task' },
+	{ id: 'b5', taskId: 'task-3', title: 'Update documentation',   dayIndex: 2, startHour: 11, startMinute: 0,  duration: 90,  color: '#059669', source: 'task'   },
 	// Thursday: planning 15–16
 	{ id: 'b6', taskId: null,     title: 'Sprint planning',        dayIndex: 3, startHour: 15, startMinute: 0,  duration: 60,  color: '#db2777', source: 'manual' },
-	// Friday: retro 13–14
-	{ id: 'b7', taskId: null,     title: 'Retrospective',          dayIndex: 4, startHour: 13, startMinute: 30, duration: 60,  color: '#7c3aed', source: 'gcal' },
+	// Friday: retro 13:30–14:30
+	{ id: 'b7', taskId: null,     title: 'Retrospective',          dayIndex: 4, startHour: 13, startMinute: 30, duration: 60,  color: '#7c3aed', source: 'gcal'   },
 ];
 
-// ── DOM helpers ─────────────────────────────────────────────────────────────
+// ── In-memory store with localStorage persistence ────────────────────────────
+
+const store = {
+	tasks: [],
+	blocks: [],
+	/** Number of weeks offset from the current week (negative = past). */
+	weekOffset: 0,
+
+	/** Load from localStorage, or seed from defaults. */
+	load() {
+		try {
+			const raw = localStorage.getItem(STORAGE_KEY);
+			if (raw) {
+				const data = JSON.parse(raw);
+				if (Array.isArray(data.tasks) && Array.isArray(data.blocks)) {
+					this.tasks = data.tasks;
+					this.blocks = data.blocks;
+					this.weekOffset = typeof data.weekOffset === 'number' ? data.weekOffset : 0;
+					return;
+				}
+			}
+		} catch (_) { /* fall through to defaults */ }
+
+		// Seed defaults — stamp blocks with the current week's Monday.
+		const weekKey = formatDate(getWeekStart(new Date()));
+		this.tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS));
+		this.blocks = DEFAULT_BLOCKS_RAW.map((b) => ({ ...b, weekStart: weekKey }));
+		this.weekOffset = 0;
+	},
+
+	/** Persist current state to localStorage. */
+	save() {
+		try {
+			localStorage.setItem(STORAGE_KEY, JSON.stringify({
+				tasks: this.tasks,
+				blocks: this.blocks,
+				weekOffset: this.weekOffset,
+			}));
+		} catch (_) { /* storage full or unavailable */ }
+	},
+
+	/** Clear localStorage and reload the page. */
+	reset() {
+		try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+		location.reload();
+	},
+
+	/** Returns the Monday Date for the currently-viewed week. */
+	currentWeekStart() {
+		return addWeeks(getWeekStart(new Date()), this.weekOffset);
+	},
+
+	/** Generate a unique block ID. */
+	newBlockId() {
+		return `block-preview-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+	},
+};
+
+// ── Drag state ───────────────────────────────────────────────────────────────
+
+let draggingTaskId = null;
+let draggingBlockId = null;
+
+// ── DOM helpers ──────────────────────────────────────────────────────────────
 
 function el(tag, cls, text) {
 	const e = document.createElement(tag);
@@ -151,167 +214,60 @@ function el(tag, cls, text) {
 function div(cls, text) { return el('div', cls, text); }
 function span(cls, text) { return el('span', cls, text); }
 
-// ── Sidebar builder ──────────────────────────────────────────────────────────
+// ── Top-level layout references ──────────────────────────────────────────────
+// Set once by buildPreview(); used by rerenderMain() and renderBacklogList().
 
-/** Render a single task card into `list`, respecting the current filter query. */
-function renderTaskItem(task, list) {
-	const item = div('tb-task-item');
-	item.setAttribute('draggable', 'true');
-	item.dataset.taskId = task.id;
-	if (task.completed) item.classList.add('tb-task-item--completed');
+let sidebarEl = null;
+let backlogListEl = null;
+let searchInputEl = null;
+let mainEl = null;
 
-	// Color indicator bar
-	if (task.color) {
-		const indicator = div('tb-tag-color-indicator');
-		indicator.style.setProperty('--tb-tag-color', task.color);
-		item.appendChild(indicator);
-		item.style.position = 'relative';
-		item.style.paddingLeft = '11px';
-	}
-
-	const itemHeader = div('tb-task-header');
-
-	// Checkbox
-	const checkbox = document.createElement('input');
-	checkbox.type = 'checkbox';
-	checkbox.className = 'tb-task-complete';
-	checkbox.checked = task.completed;
-	itemHeader.appendChild(checkbox);
-
-	// Priority icon
-	if (task.priority !== undefined) {
-		itemHeader.appendChild(span('tb-task-prio', PRIO_ICONS[task.priority] ?? ''));
-	}
-
-	// Title
-	const titleLink = el('a', 'tb-task-title', task.title);
-	titleLink.href = '#';
-	titleLink.title = 'Open task (demo)';
-	titleLink.addEventListener('click', (e) => e.preventDefault());
-	itemHeader.appendChild(titleLink);
-	item.appendChild(itemHeader);
-
-	// Due date
-	if (task.dueDate) {
-		const dateEl = div('tb-task-due', `Due ${task.dueDate.toLocaleDateString()}`);
-		const today = new Date();
-		today.setHours(0, 0, 0, 0);
-		const due = new Date(task.dueDate);
-		due.setHours(0, 0, 0, 0);
-		if (due < today) dateEl.classList.add('tb-overdue');
-		item.appendChild(dateEl);
-	}
-
-	// Tags
-	if (task.tags.length > 0) {
-		const tagsEl = div('tb-task-tags');
-		for (const tag of task.tags) {
-			const tagSpan = span('tb-tag tb-tag--colored', tag);
-			tagSpan.style.setProperty('--tb-tag-color', task.color);
-			tagsEl.appendChild(tagSpan);
-		}
-		item.appendChild(tagsEl);
-	}
-
-	list.appendChild(item);
+/** Re-render the week nav + grid without touching the sidebar. */
+function rerenderMain() {
+	mainEl.innerHTML = '';
+	const weekStart = store.currentWeekStart();
+	buildWeekNav(weekStart);
+	buildGrid(weekStart);
 }
 
-/** Re-render the backlog list based on current filter/sort state. */
-function renderBacklogList(list, filterState) {
-	list.innerHTML = '';
+// ── Filter state (module-level so renderBacklogList can read it without args) ─
 
-	const query = filterState.searchQuery.toLowerCase();
+let uiFilterStatus = 'open';  // 'open' | 'all'
+let uiFilterSort = 'default'; // 'default' | 'priority' | 'due' | 'name'
 
-	// Status filter
-	let tasks = filterState.status === 'open'
-		? PLACEHOLDER_TASKS.filter((t) => !t.completed)
-		: PLACEHOLDER_TASKS.slice();
-
-	// Text / tag search
-	if (query) {
-		tasks = tasks.filter((t) =>
-			t.title.toLowerCase().includes(query) ||
-			t.tags.some((tag) => tag.toLowerCase().includes(query))
-		);
-	}
-
-	// Sort
-	const today = new Date();
-	today.setHours(0, 0, 0, 0);
-
-	switch (filterState.sort) {
-		case 'priority':
-			tasks.sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
-			break;
-		case 'due':
-			tasks.sort((a, b) => {
-				if (!a.dueDate && !b.dueDate) return 0;
-				if (!a.dueDate) return 1;
-				if (!b.dueDate) return -1;
-				return a.dueDate - b.dueDate;
-			});
-			break;
-		case 'name':
-			tasks.sort((a, b) => a.title.localeCompare(b.title));
-			break;
-		default: // 'default': overdue first, then by due date, then by priority
-			tasks.sort((a, b) => {
-				const aOverdue = a.dueDate && a.dueDate < today;
-				const bOverdue = b.dueDate && b.dueDate < today;
-				if (aOverdue && !bOverdue) return -1;
-				if (!aOverdue && bOverdue) return 1;
-				if (a.dueDate && b.dueDate) return a.dueDate - b.dueDate;
-				if (a.dueDate) return -1;
-				if (b.dueDate) return 1;
-				return (a.priority ?? 999) - (b.priority ?? 999);
-			});
-	}
-
-	if (tasks.length === 0) {
-		const empty = div('tb-empty-msg');
-		empty.textContent = query || filterState.status !== 'open'
-			? 'No tasks match the current filter.'
-			: 'No open tasks.';
-		list.appendChild(empty);
-		return;
-	}
-
-	for (const task of tasks) {
-		renderTaskItem(task, list);
-	}
-}
+// ── Sidebar ──────────────────────────────────────────────────────────────────
 
 function buildSidebar(root) {
-	const sidebar = div('tb-sidebar');
-	root.appendChild(sidebar);
+	sidebarEl = div('tb-sidebar');
+	root.appendChild(sidebarEl);
 
 	// Header
 	const header = div('tb-sidebar-header');
-	header.appendChild(span('tb-sidebar-title', 'Backlog (preview)'));
+	header.appendChild(span('tb-sidebar-title', 'Backlog'));
 	const refreshBtn = el('button', 'tb-icon-btn', '↻');
-	refreshBtn.title = 'Refresh tasks (demo)';
+	refreshBtn.title = 'Refresh task list';
+	refreshBtn.addEventListener('click', () => renderBacklogList());
 	header.appendChild(refreshBtn);
-	sidebar.appendChild(header);
+	sidebarEl.appendChild(header);
 
 	// Search
 	const searchRow = div('tb-search-row');
-	const input = document.createElement('input');
-	input.type = 'text';
-	input.className = 'tb-search-input';
-	input.placeholder = 'Filter tasks... or #tag';
-	searchRow.appendChild(input);
-	sidebar.appendChild(searchRow);
+	searchInputEl = document.createElement('input');
+	searchInputEl.type = 'text';
+	searchInputEl.className = 'tb-search-input';
+	searchInputEl.placeholder = 'Filter tasks... or #tag';
+	searchInputEl.addEventListener('input', () => renderBacklogList());
+	searchRow.appendChild(searchInputEl);
+	sidebarEl.appendChild(searchRow);
 
 	// ── Filter bar (mirrors TimeBlockView.buildFilterBar) ────────────────────
-	const filterState = { status: 'open', sort: 'default', searchQuery: '' };
-
 	const bar = div('tb-filter-bar');
 
 	// Status pills
 	const pillGroup = div('tb-filter-pill-group');
 	const statusOptions = [
 		{ value: 'open', label: 'Open' },
-		{ value: 'all',  label: 'All'  },
+		{ value: 'all', label: 'All' },
 	];
 	const pills = [];
 	for (const opt of statusOptions) {
@@ -319,14 +275,14 @@ function buildSidebar(root) {
 		pill.type = 'button';
 		pill.setAttribute('aria-label', `Show ${opt.label} tasks`);
 		pill.setAttribute('data-value', opt.value);
-		if (filterState.status === opt.value) pill.classList.add('tb-filter-pill--active');
+		if (uiFilterStatus === opt.value) pill.classList.add('tb-filter-pill--active');
 		pills.push(pill);
 		pill.addEventListener('click', () => {
-			filterState.status = opt.value;
+			uiFilterStatus = opt.value;
 			for (const p of pills) {
-				p.classList.toggle('tb-filter-pill--active', p.getAttribute('data-value') === filterState.status);
+				p.classList.toggle('tb-filter-pill--active', p.getAttribute('data-value') === uiFilterStatus);
 			}
-			renderBacklogList(list, filterState);
+			renderBacklogList();
 		});
 		pillGroup.appendChild(pill);
 	}
@@ -346,40 +302,196 @@ function buildSidebar(root) {
 		const option = document.createElement('option');
 		option.value = opt.value;
 		option.textContent = opt.label;
-		if (filterState.sort === opt.value) option.selected = true;
+		if (uiFilterSort === opt.value) option.selected = true;
 		sortSelect.appendChild(option);
 	}
 	sortSelect.addEventListener('change', () => {
-		filterState.sort = sortSelect.value;
-		renderBacklogList(list, filterState);
+		uiFilterSort = sortSelect.value;
+		renderBacklogList();
 	});
 	bar.appendChild(sortSelect);
 
-	sidebar.appendChild(bar);
+	sidebarEl.appendChild(bar);
 
-	// Task list
-	const list = div('tb-backlog-list');
-	sidebar.appendChild(list);
+	// Scrollable task list
+	backlogListEl = div('tb-backlog-list');
+	sidebarEl.appendChild(backlogListEl);
 
-	// Wire up live search
-	input.addEventListener('input', () => {
-		filterState.searchQuery = input.value;
-		renderBacklogList(list, filterState);
-	});
-
-	// Initial render
-	renderBacklogList(list, filterState);
-
-	return sidebar;
+	renderBacklogList();
 }
 
-// ── Week navigation bar ──────────────────────────────────────────────────────
+/**
+ * Re-renders only the backlog list inside the sidebar.
+ * Applies status filter and sort, hides tasks already scheduled this week.
+ */
+function renderBacklogList() {
+	backlogListEl.innerHTML = '';
 
-function buildWeekNav(mainEl, weekStart) {
+	const query = (searchInputEl?.value ?? '').toLowerCase();
+	const weekKey = formatDate(store.currentWeekStart());
+
+	// Tasks that already have a block this week are hidden from the backlog.
+	const scheduledThisWeek = new Set(
+		store.blocks
+			.filter((b) => b.weekStart === weekKey && b.taskId)
+			.map((b) => b.taskId)
+	);
+
+	// Status filter
+	let visible = store.tasks.filter((t) => {
+		if (scheduledThisWeek.has(t.id)) return false;
+		if (uiFilterStatus === 'open' && t.completed) return false;
+		if (!query) return true;
+		return (
+			t.title.toLowerCase().includes(query) ||
+			t.tags.some((tag) => tag.toLowerCase().includes(query))
+		);
+	});
+
+	// Sort
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
+
+	switch (uiFilterSort) {
+		case 'priority':
+			visible.sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
+			break;
+		case 'due':
+			visible.sort((a, b) => {
+				if (!a.dueDate && !b.dueDate) return 0;
+				if (!a.dueDate) return 1;
+				if (!b.dueDate) return -1;
+				return new Date(a.dueDate + 'T00:00:00') - new Date(b.dueDate + 'T00:00:00');
+			});
+			break;
+		case 'name':
+			visible.sort((a, b) => a.title.localeCompare(b.title));
+			break;
+		default: { // 'default': overdue first, then by due date, then by priority
+			visible.sort((a, b) => {
+				const aDue = a.dueDate ? new Date(a.dueDate + 'T00:00:00') : null;
+				const bDue = b.dueDate ? new Date(b.dueDate + 'T00:00:00') : null;
+				const aOverdue = aDue && aDue < today;
+				const bOverdue = bDue && bDue < today;
+				if (aOverdue && !bOverdue) return -1;
+				if (!aOverdue && bOverdue) return 1;
+				if (aDue && bDue) return aDue - bDue;
+				if (aDue) return -1;
+				if (bDue) return 1;
+				return (a.priority ?? 999) - (b.priority ?? 999);
+			});
+		}
+	}
+
+	if (visible.length === 0) {
+		const msg = div(
+			'tb-empty-msg',
+			query || uiFilterStatus !== 'open'
+				? 'No tasks match the current filter.'
+				: 'All tasks are scheduled this week.'
+		);
+		backlogListEl.appendChild(msg);
+		return;
+	}
+
+	for (const task of visible) {
+		buildTaskItem(task);
+	}
+}
+
+
+function buildTaskItem(task) {
+	const item = div('tb-task-item');
+	item.setAttribute('draggable', 'true');
+	item.dataset.taskId = task.id;
+	item.title = 'Drag onto the grid to schedule';
+	if (task.completed) item.classList.add('tb-task-item--completed');
+
+	// Color indicator bar
+	if (task.color) {
+		const indicator = div('tb-tag-color-indicator');
+		indicator.style.setProperty('--tb-tag-color', task.color);
+		item.appendChild(indicator);
+		item.style.position = 'relative';
+		item.style.paddingLeft = '11px';
+	}
+
+	const itemHeader = div('tb-task-header');
+
+	// Checkbox — disabled in preview; vault writes require Obsidian
+	const checkbox = document.createElement('input');
+	checkbox.type = 'checkbox';
+	checkbox.className = 'tb-task-complete';
+	checkbox.checked = task.completed;
+	checkbox.disabled = true;
+	checkbox.setAttribute('aria-label', 'Task completion requires Obsidian (not available in preview)');
+	checkbox.title = 'Task completion requires Obsidian (not available in preview)';
+	itemHeader.appendChild(checkbox);
+
+	// Priority icon
+	if (task.priority !== undefined) {
+		itemHeader.appendChild(span('tb-task-prio', PRIO_ICONS[task.priority] ?? ''));
+	}
+
+	// Title link
+	const titleLink = el('a', 'tb-task-title', task.title);
+	titleLink.href = '#';
+	titleLink.title = 'Opens task file in Obsidian (not available in preview)';
+	titleLink.addEventListener('click', (e) => e.preventDefault());
+	itemHeader.appendChild(titleLink);
+	item.appendChild(itemHeader);
+
+	// Due date
+	if (task.dueDate) {
+		// Append T00:00:00 so the date is parsed as local midnight rather than
+		// UTC midnight, which would shift the displayed date by ±1 day in most
+		// timezones when only the date portion is stored.
+		const due = new Date(task.dueDate + 'T00:00:00');
+		const dateEl = div('tb-task-due', `Due ${due.toLocaleDateString()}`);
+		const today = new Date();
+		today.setHours(0, 0, 0, 0);
+		if (due < today) dateEl.classList.add('tb-overdue');
+		item.appendChild(dateEl);
+	}
+
+	// Tags
+	if (task.tags.length > 0) {
+		const tagsEl = div('tb-task-tags');
+		for (const tag of task.tags) {
+			const tagSpan = span('tb-tag tb-tag--colored', tag);
+			if (task.color) tagSpan.style.setProperty('--tb-tag-color', task.color);
+			tagsEl.appendChild(tagSpan);
+		}
+		item.appendChild(tagsEl);
+	}
+
+	// Drag events
+	item.addEventListener('dragstart', (e) => {
+		draggingTaskId = task.id;
+		draggingBlockId = null;
+		e.dataTransfer?.setData('text/plain', task.id);
+		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+		item.classList.add('tb-dragging');
+	});
+	item.addEventListener('dragend', () => item.classList.remove('tb-dragging'));
+
+	backlogListEl.appendChild(item);
+}
+
+// ── Week navigation ──────────────────────────────────────────────────────────
+
+function buildWeekNav(weekStart) {
 	const nav = div('tb-week-nav');
 	mainEl.appendChild(nav);
 
-	nav.appendChild(el('button', 'tb-nav-btn', '← prev'));
+	const prevBtn = el('button', 'tb-nav-btn', '← prev');
+	prevBtn.addEventListener('click', () => {
+		store.weekOffset -= 1;
+		store.save();
+		rerenderMain();
+		renderBacklogList();
+	});
+	nav.appendChild(prevBtn);
 
 	const days = getWeekDays(weekStart);
 	const label = days[0].toLocaleDateString(undefined, {
@@ -387,11 +499,25 @@ function buildWeekNav(mainEl, weekStart) {
 	});
 	nav.appendChild(span('tb-week-label', `Week of ${label}`));
 
-	nav.appendChild(el('button', 'tb-nav-btn', 'Today'));
-	nav.appendChild(el('button', 'tb-nav-btn', 'Next →'));
-	nav.appendChild(el('button', 'tb-nav-btn', '↻ refresh'));
+	const todayBtn = el('button', 'tb-nav-btn', 'Today');
+	todayBtn.addEventListener('click', () => {
+		store.weekOffset = 0;
+		store.save();
+		rerenderMain();
+		renderBacklogList();
+	});
+	nav.appendChild(todayBtn);
 
-	const badge = span('', '⚡ Preview mode — placeholder data');
+	const nextBtn = el('button', 'tb-nav-btn', 'Next →');
+	nextBtn.addEventListener('click', () => {
+		store.weekOffset += 1;
+		store.save();
+		rerenderMain();
+		renderBacklogList();
+	});
+	nav.appendChild(nextBtn);
+
+	const badge = span('', '⚡ In-browser demo — changes saved to localStorage');
 	badge.style.cssText = 'font-size:11px;color:var(--text-muted);margin-left:auto;font-style:italic;';
 	nav.appendChild(badge);
 }
@@ -433,39 +559,135 @@ function renderBlock(block, slotsEl) {
 	const header = div('tb-block-header');
 
 	if (block.source === 'task' && block.taskId) {
+		// Checkbox — disabled in preview; vault writes require Obsidian
 		const checkbox = document.createElement('input');
 		checkbox.type = 'checkbox';
 		checkbox.className = 'tb-block-complete';
+		checkbox.disabled = true;
+		checkbox.setAttribute('aria-label', 'Task completion requires Obsidian (not available in preview)');
+		checkbox.title = 'Task completion requires Obsidian (not available in preview)';
 		header.appendChild(checkbox);
 
 		const titleLink = el('a', 'tb-block-title tb-block-title--link', block.title);
 		titleLink.href = '#';
-		titleLink.addEventListener('click', (e) => e.preventDefault());
+		titleLink.title = 'Opens task file in Obsidian (not available in preview)';
+		titleLink.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
 		header.appendChild(titleLink);
 	} else {
 		header.appendChild(div('tb-block-title tb-block-title--static', block.title));
 	}
 	blockEl.appendChild(header);
 
-	blockEl.appendChild(div('tb-block-time', formatBlockTimeLabel(block)));
+	const timeEl = div('tb-block-time', formatBlockTimeLabel(block));
+	blockEl.appendChild(timeEl);
 
 	if (block.source !== 'gcal') {
+		// Make draggable for repositioning
 		blockEl.setAttribute('draggable', 'true');
+		blockEl.addEventListener('dragstart', (e) => {
+			if (e.target.classList.contains('tb-resize-handle')) {
+				e.preventDefault();
+				return;
+			}
+			draggingBlockId = block.id;
+			draggingTaskId = null;
+			if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+			blockEl.classList.add('tb-dragging');
+		});
+		blockEl.addEventListener('dragend', () => blockEl.classList.remove('tb-dragging'));
 
+		// Resize handle (bottom edge)
 		const handle = div('tb-resize-handle');
+		attachResizeHandler(handle, block, blockEl, timeEl);
 		blockEl.appendChild(handle);
 
+		// Delete button
 		const del = div('tb-block-delete', '×');
-		del.title = 'Remove from schedule (demo)';
+		del.title = 'Remove from schedule';
+		del.addEventListener('click', (e) => {
+			e.stopPropagation();
+			store.blocks = store.blocks.filter((b) => b.id !== block.id);
+			store.save();
+			blockEl.remove();
+			renderBacklogList();
+		});
 		blockEl.appendChild(del);
 	}
 
 	slotsEl.appendChild(blockEl);
 }
 
+/**
+ * Attaches mouse-based resize behaviour to the bottom drag handle.
+ * Mirrors the logic in TimeBlockView.ts `attachResizeHandler`.
+ */
+function attachResizeHandler(handle, block, blockEl, timeEl) {
+	handle.addEventListener('mousedown', (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+
+		const startY = e.clientY;
+		const origDuration = block.duration;
+
+		const onMove = (ev) => {
+			const deltaY = ev.clientY - startY;
+		const deltaMins = snapToGrid((deltaY / HOUR_HEIGHT) * 60);
+			block.duration = Math.max(MIN_DURATION, origDuration + deltaMins);
+			blockEl.style.height = `${(block.duration / 60) * HOUR_HEIGHT}px`;
+			if (timeEl) timeEl.textContent = formatBlockTimeLabel(block);
+		};
+
+		const onUp = () => {
+			document.removeEventListener('mousemove', onMove);
+			document.removeEventListener('mouseup', onUp);
+			store.save();
+		};
+
+		document.addEventListener('mousemove', onMove);
+		document.addEventListener('mouseup', onUp);
+	});
+}
+
+// ── Drop handling ────────────────────────────────────────────────────────────
+
+function handleDrop(dayIndex, startHour, startMinute, weekKey) {
+	if (draggingTaskId) {
+		const task = store.tasks.find((t) => t.id === draggingTaskId);
+		if (task) {
+			store.blocks.push({
+				id: store.newBlockId(),
+				taskId: task.id,
+				title: task.title,
+				weekStart: weekKey,
+				dayIndex,
+				startHour,
+				startMinute,
+				duration: 30,
+				color: task.color || '#7B61FF',
+				source: 'task',
+			});
+		}
+	} else if (draggingBlockId) {
+		const blk = store.blocks.find((b) => b.id === draggingBlockId);
+		if (blk) {
+			blk.weekStart = weekKey;
+			blk.dayIndex = dayIndex;
+			blk.startHour = startHour;
+			blk.startMinute = startMinute;
+		}
+	}
+
+	draggingTaskId = null;
+	draggingBlockId = null;
+
+	store.save();
+	rerenderMain();
+	renderBacklogList();
+}
+
 // ── Weekly grid ──────────────────────────────────────────────────────────────
 
-function buildGrid(mainEl, weekStart) {
+function buildGrid(weekStart) {
 	const gridEl = div('tb-grid');
 	mainEl.appendChild(gridEl);
 
@@ -499,11 +721,11 @@ function buildGrid(mainEl, weekStart) {
 		header.appendChild(span('tb-day-num', String(day.getDate())));
 		col.appendChild(header);
 
-		// Slots container
+		// Slots container (drop zone)
 		const slots = div('tb-slots');
 		slots.style.height = `${(totalHours + 1) * HOUR_HEIGHT}px`;
 
-		// Hour-grid lines
+		// Hour grid lines
 		for (let h = 0; h <= totalHours; h++) {
 			const slot = div('tb-hour-slot');
 			slot.style.top = `${h * HOUR_HEIGHT}px`;
@@ -511,48 +733,90 @@ function buildGrid(mainEl, weekStart) {
 			slots.appendChild(slot);
 		}
 
-		// Now indicator
+		// Current-time indicator (today only)
 		if (isToday(day)) renderNowIndicator(slots);
 
-		// Render blocks for this day
-		for (const block of PLACEHOLDER_BLOCKS) {
-			if (block.dayIndex === dayIndex) {
-				renderBlock({ ...block, weekStart: weekKey }, slots);
+		// Render blocks for this day / week
+		for (const block of store.blocks) {
+			if (block.weekStart === weekKey && block.dayIndex === dayIndex) {
+				renderBlock(block, slots);
 			}
 		}
+
+		// Drag-and-drop receivers
+		slots.addEventListener('dragover', (e) => {
+			e.preventDefault();
+			if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+			slots.classList.add('tb-drop-active');
+		});
+		slots.addEventListener('dragleave', () => slots.classList.remove('tb-drop-active'));
+		slots.addEventListener('drop', (e) => {
+			e.preventDefault();
+			slots.classList.remove('tb-drop-active');
+
+			const rect = slots.getBoundingClientRect();
+			const rawMinutes = ((e.clientY - rect.top) / HOUR_HEIGHT) * 60;
+			const snapped = snapToGrid(rawMinutes);
+			const startHour = WORKDAY_START + Math.floor(snapped / 60);
+			const startMinute = snapped % 60;
+
+			handleDrop(dayIndex, startHour, startMinute, weekKey);
+		});
 
 		col.appendChild(slots);
 		gridEl.appendChild(col);
 	});
+}
 
-	return gridEl;
+// ── Sidebar resizer ──────────────────────────────────────────────────────────
+
+function attachSidebarResizer(resizer) {
+	resizer.addEventListener('mousedown', (e) => {
+		e.preventDefault();
+		const startX = e.clientX;
+		const startWidth = sidebarEl.offsetWidth;
+		resizer.classList.add('tb-resizing');
+		document.body.classList.add('tb-no-user-select');
+
+		const onMove = (ev) => {
+			const newWidth = Math.max(150, Math.min(600, startWidth + (ev.clientX - startX)));
+			sidebarEl.style.width = `${newWidth}px`;
+		};
+		const onUp = () => {
+			resizer.classList.remove('tb-resizing');
+			document.body.classList.remove('tb-no-user-select');
+			document.removeEventListener('mousemove', onMove);
+			document.removeEventListener('mouseup', onUp);
+		};
+		document.addEventListener('mousemove', onMove);
+		document.addEventListener('mouseup', onUp);
+	});
 }
 
 // ── Root builder ─────────────────────────────────────────────────────────────
 
 function buildPreview() {
-	const weekStart = getWeekStart(new Date());
+	store.load();
 
-	// Attach to the #app mount point in index.html
 	const app = document.getElementById('app');
 	if (!app) return;
 
 	const root = div('tb-root');
 	app.appendChild(root);
 
-	// Sidebar
+	// Sidebar (built once; renderBacklogList() updates the list inside it)
 	buildSidebar(root);
 
-	// Resize handle
+	// Sidebar resize handle
 	const resizer = div('tb-sidebar-resizer');
+	attachSidebarResizer(resizer);
 	root.appendChild(resizer);
 
-	// Main area
-	const mainEl = div('tb-main');
+	// Main area (rebuilt on every week navigation)
+	mainEl = div('tb-main');
 	root.appendChild(mainEl);
 
-	buildWeekNav(mainEl, weekStart);
-	buildGrid(mainEl, weekStart);
+	rerenderMain();
 }
 
 // Run after DOM is ready

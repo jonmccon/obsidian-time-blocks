@@ -87,7 +87,12 @@
 <body>
   <div id="wrapper">
     <div id="preview-banner">
-      ⚡ Time Blocks — CI Preview &nbsp;|&nbsp; Placeholder data &nbsp;|&nbsp; Default light-mode styling
+      ⚡ Time Blocks — In-browser demo &nbsp;|&nbsp; Changes saved to localStorage &nbsp;|&nbsp; Default light-mode styling
+      <button
+        onclick="localStorage.removeItem('time-blocks-preview'); location.reload();"
+        style="margin-left:14px;font-size:11px;padding:2px 9px;border:1px solid rgba(255,255,255,0.55);background:transparent;color:inherit;cursor:pointer;border-radius:3px;vertical-align:middle;"
+        title="Clear all demo data and reload with defaults"
+      >Reset demo</button>
     </div>
     <div id="app"></div>
   </div>
