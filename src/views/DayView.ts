@@ -86,7 +86,7 @@ export class DayView extends ItemView {
 	}
 
 	private async loadTasks(): Promise<void> {
-		const { backlogMode, showCompletedTasks, taskTagFilter, customTaskQuery } =
+		const { backlogMode, showCompletedTasks, customTaskQuery } =
 			this.plugin.settings;
 
 		let all: TaskItem[];
@@ -99,10 +99,7 @@ export class DayView extends ItemView {
 		} else {
 			all = await queryTasks(
 				this.app,
-				{
-					showCompleted: showCompletedTasks,
-					tagFilter: tagFilter(taskTagFilter),
-				},
+				{ showCompleted: showCompletedTasks },
 				raw
 			);
 		}
@@ -647,12 +644,6 @@ function formatBlockTimeLabel(block: ScheduledBlock): string {
 		? `${formatHour(block.startHour)}:${String(block.startMinute).padStart(2, '0')}`
 		: formatHour(block.startHour);
 	return `${startLabel} · ${block.duration} min`;
-}
-
-/** Returns `undefined` when the filter string is empty/whitespace. */
-function tagFilter(raw: string): string | undefined {
-	const trimmed = raw.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /**
