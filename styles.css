@@ -550,6 +550,134 @@ body.tb-no-user-select {
 	font-family: var(--font-monospace);
 }
 
+/* ── Sidebar filter controls ────────────────────────────────── */
+.tb-filter-controls {
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.tb-filter-mode-row {
+	display: flex;
+	gap: 4px;
+}
+
+.tb-mode-pill {
+	flex: 1;
+	padding: 3px 6px;
+	border-radius: 12px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: 11px;
+	font-weight: 500;
+	cursor: pointer;
+	text-align: center;
+	transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.tb-mode-pill:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.tb-mode-pill--active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+
+.tb-mode-pill--active:hover {
+	background: var(--interactive-accent-hover);
+}
+
+.tb-filter-completed {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 11px;
+	color: var(--text-muted);
+	cursor: pointer;
+	user-select: none;
+}
+
+.tb-filter-completed:hover {
+	color: var(--text-normal);
+}
+
+.tb-sidebar-query {
+	width: 100%;
+	font-family: var(--font-monospace);
+	font-size: 11px;
+	resize: vertical;
+	border-radius: 4px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	padding: 4px 6px;
+	box-sizing: border-box;
+}
+
+.tb-sidebar-query:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+}
+
+/* ── Tag bar (clickable chips) ───────────────────────────────── */
+.tb-tag-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.tb-tag-bar.is-hidden {
+	display: none;
+}
+
+.tb-tag-chip {
+	padding: 2px 8px;
+	border-radius: 10px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: 11px;
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s, border-color 0.15s;
+	white-space: nowrap;
+}
+
+.tb-tag-chip:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+	border-color: var(--interactive-accent);
+}
+
+.tb-tag-chip--active {
+	background: color-mix(in srgb, var(--interactive-accent) 15%, var(--background-primary));
+	color: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	font-weight: 600;
+}
+
+.tb-tag-chip--active:hover {
+	background: color-mix(in srgb, var(--interactive-accent) 25%, var(--background-primary));
+}
+
+.tb-tag-chip--colored {
+	color: var(--tb-tag-chip-color);
+	border-color: var(--tb-tag-chip-color);
+}
+
+.tb-tag-chip--colored.tb-tag-chip--active {
+	background: color-mix(in srgb, var(--tb-tag-chip-color) 15%, var(--background-primary));
+}
+
 /* ── Day view (sidebar) ─────────────────────────────────────── */
 .tb-day-root {
 	display: flex;
