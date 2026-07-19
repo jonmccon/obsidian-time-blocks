@@ -186,6 +186,36 @@ body.tb-no-user-select {
 	font-weight: 600;
 }
 
+.tb-task-scheduled {
+	font-size: 11px;
+	color: var(--text-muted);
+	margin-top: 2px;
+}
+
+.tb-task-item--overdue .tb-task-scheduled {
+	color: var(--color-red, #c0392b);
+}
+
+.tb-task-clear-scheduled {
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	font-size: 11px;
+	color: var(--text-muted);
+	text-decoration: underline;
+	vertical-align: baseline;
+}
+
+.tb-task-clear-scheduled:hover {
+	color: var(--text-normal);
+}
+
+.tb-task-item--overdue {
+	border-color: color-mix(in srgb, var(--color-red, #c0392b) 40%, var(--background-modifier-border));
+	background: color-mix(in srgb, var(--color-red, #c0392b) 6%, var(--background-primary));
+}
+
 .tb-task-tags {
 	font-size: 10px;
 	color: var(--text-accent);
