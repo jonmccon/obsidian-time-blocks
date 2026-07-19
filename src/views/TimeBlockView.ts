@@ -265,19 +265,16 @@ export class TimeBlockView extends ItemView {
 		} as Parameters<typeof searchRow.createEl>[1]);
 		this.searchInput.addEventListener('input', () => this.renderBacklogList());
 
-<<<<<<< HEAD
 		// Quick-filter bar
 		this.buildFilterBar();
-=======
+
 		// Tag bar (multi-select chips, "all" mode only)
 		this.tagBarEl = this.sidebarEl.createDiv('tb-tag-bar');
->>>>>>> origin/master
 
 		// Scrollable task list
 		this.backlogListEl = this.sidebarEl.createDiv('tb-backlog-list');
 	}
 
-<<<<<<< HEAD
 	/** Builds the status-pill + sort-select filter bar. */
 	private buildFilterBar(): void {
 		const bar = this.sidebarEl.createDiv('tb-filter-bar');
@@ -331,7 +328,8 @@ export class TimeBlockView extends ItemView {
 			this.uiFilterSort = sortSelect.value as typeof this.uiFilterSort;
 			this.renderBacklogList();
 		});
-=======
+	}
+
 	/** Rebuilds the filter controls section (mode pills + completed / query area). */
 	private renderFilterControls(): void {
 		this.filterControlsEl.empty();
@@ -470,19 +468,24 @@ export class TimeBlockView extends ItemView {
 				this.renderBacklogList();
 			});
 		}
->>>>>>> origin/master
 	}
 
 	private renderBacklogList(): void {
 		this.backlogListEl.empty();
 
 		const query = this.searchInput?.value?.toLowerCase() ?? '';
-<<<<<<< HEAD
 
 		// Apply text search
 		let visible = this.backlogTasks.filter((t) =>
 			t.title.toLowerCase().includes(query)
 		);
+
+		// Apply multi-select tag filter (show tasks containing ANY of the active tags)
+		if (this.activeTagFilters.size > 0) {
+			visible = visible.filter((t) =>
+				t.tags.some((tag) => this.activeTagFilters.has(tag))
+			);
+		}
 
 		// Apply status filter
 		if (this.uiFilterStatus === 'open') {
@@ -490,34 +493,14 @@ export class TimeBlockView extends ItemView {
 		}
 
 		// Show a context-aware empty message: use the friendly vault message only
-		// when no text query is active and status is at its default ('open') state.
-		const isDefaultState = !query && this.uiFilterStatus === 'open';
+		// when no filters are active and status is at its default ('open') state.
+		const hasActiveFilters = query.length > 0 || this.activeTagFilters.size > 0 || this.uiFilterStatus !== 'open';
 
 		if (visible.length === 0) {
-			this.backlogListEl.createEl('p', {
-				text: isDefaultState
-					? 'No incomplete tasks found in the vault.'
-					: 'No matching tasks.',
-=======
-		let visibleTasks = this.backlogTasks.filter((t) =>
-			t.title.toLowerCase().includes(query)
-		);
-
-		// Apply multi-select tag filter (show tasks containing ANY of the active tags)
-		if (this.activeTagFilters.size > 0) {
-			visibleTasks = visibleTasks.filter((t) =>
-				t.tags.some((tag) => this.activeTagFilters.has(tag))
-			);
-		}
-
-		const hasActiveFilters = query.length > 0 || this.activeTagFilters.size > 0;
-
-		if (visibleTasks.length === 0) {
 			this.backlogListEl.createEl('p', {
 				text: hasActiveFilters
 					? 'No matching tasks.'
 					: 'No incomplete tasks found in the vault.',
->>>>>>> origin/master
 				cls: 'tb-empty-msg',
 			});
 			return;
@@ -526,8 +509,6 @@ export class TimeBlockView extends ItemView {
 		// Apply sort
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
-<<<<<<< HEAD
-
 		let sorted: TaskItem[];
 		switch (this.uiFilterSort) {
 			case 'priority':
@@ -551,13 +532,6 @@ export class TimeBlockView extends ItemView {
 					return aOver - bOver;
 				});
 		}
-=======
-		const sorted = [...visibleTasks].sort((a, b) => {
-			const aOver = isTaskOverdue(a, today) ? 0 : 1;
-			const bOver = isTaskOverdue(b, today) ? 0 : 1;
-			return aOver - bOver;
-		});
->>>>>>> origin/master
 
 		for (const task of sorted) {
 			this.buildTaskItem(task, today);
