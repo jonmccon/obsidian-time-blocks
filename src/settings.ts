@@ -1,4 +1,5 @@
 import { App, Notice, PluginSettingTab, Setting, requestUrl } from 'obsidian';
+import type { SettingDefinitionItem, SettingGroupItem } from 'obsidian';
 import TimeBlockPlugin from './main';
 import {
 	buildAuthUrl,
@@ -145,508 +146,554 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
+	override getSettingDefinitions(): SettingDefinitionItem[] {
+		const { settings } = this.plugin;
 
-		// ── Google Calendar ──────────────────────────────────────────────────
-		new Setting(containerEl).setName('Google calendar').setHeading();
+		// ── Calendar feeds (dynamic) ─────────────────────────────────────────
+		const calendarFeedItems: SettingGroupItem[] = [];
+		if (settings.calendarFeeds.length === 0) {
+			calendarFeedItems.push({
+				name: '',
+				desc: 'No calendar feeds connected yet. Add one below to overlay events.',
+				searchable: false,
+			});
+		} else {
+			for (const [index, feed] of settings.calendarFeeds.entries()) {
+				const label = calendarFeedLabel(index);
+				calendarFeedItems.push({
+					name: label,
+					desc:
+						'Paste the private ICS feed URL from Google Calendar → Settings → ' +
+						'"Secret address in iCal format". The URL starts with https://calendar.google.com/calendar/ical/…',
+					render: (setting: Setting) => {
+						let draftUrl = feed.url;
+						let statusEl: HTMLElement;
 
-		const calendars = this.plugin.settings.calendarFeeds;
-
-		if (calendars.length === 0) {
-			new Setting(containerEl).setDesc(
-				'No calendar feeds connected yet. Add one below to overlay events.'
-			);
-		}
-
-		calendars.forEach((feed, index) => {
-			const label = calendarFeedLabel(index);
-			let draftUrl = feed.url;
-			let statusEl: HTMLElement;
-
-			const setting = new Setting(containerEl)
-				.setName(label)
-				.setDesc(
-					'Paste the private ICS feed URL from Google Calendar → Settings → ' +
-					'"Secret address in iCal format". The URL starts with https://calendar.google.com/calendar/ical/…'
-				);
-
-			setting.addText((text) =>
-				text
-					.setPlaceholder('https://calendar.google.com/calendar/ical/…')
-					.setValue(feed.url)
-					.onChange((value) => {
-						draftUrl = value;
-						this.setCalendarStatus(feed.id, 'idle', statusEl);
-					})
-			);
-
-			setting.addButton((btn) =>
-				btn
-					.setButtonText('Save')
-					.setCta()
-					.onClick(async () => {
-						const trimmed = draftUrl.trim();
-						if (!trimmed) {
-							this.setCalendarStatus(feed.id, 'error', statusEl);
-							new Notice('Time blocks: calendar URL cannot be empty.');
-							return;
-						}
-						if (!trimmed.startsWith('https://')) {
-							this.setCalendarStatus(feed.id, 'error', statusEl);
-							new Notice('Time blocks: calendar URL must use HTTPS.');
-							return;
-						}
-
-						feed.url = trimmed;
-						await this.plugin.saveSettings();
-
-						this.setCalendarStatus(feed.id, 'checking', statusEl);
-						const ok = await this.verifyCalendarFeed(trimmed, label);
-						this.setCalendarStatus(feed.id, ok ? 'connected' : 'error', statusEl);
-					})
-			);
-
-			setting.addExtraButton((btn) =>
-				btn
-					.setIcon('trash')
-					.setTooltip('Remove calendar feed')
-					.onClick(async () => {
-						this.calendarConnectionStatus.delete(feed.id);
-						this.plugin.settings.calendarFeeds = calendars.filter(
-							(entry) => entry.id !== feed.id
+						setting.addText((text) =>
+							text
+								.setPlaceholder('https://calendar.google.com/calendar/ical/…')
+								.setValue(feed.url)
+								.onChange((value) => {
+									draftUrl = value;
+									this.setCalendarStatus(feed.id, 'idle', statusEl);
+								})
 						);
-						await this.plugin.saveSettings();
-						this.display();
-					})
-			);
 
-			statusEl = setting.controlEl.createDiv({ cls: 'tb-calendar-status' });
-			const initialStatus = this.calendarConnectionStatus.get(feed.id) ?? 'idle';
-			this.setCalendarStatus(feed.id, initialStatus, statusEl);
+						setting.addButton((btn) =>
+							btn
+								.setButtonText('Save')
+								.setCta()
+								.onClick(async () => {
+									const trimmed = draftUrl.trim();
+									if (!trimmed) {
+										this.setCalendarStatus(feed.id, 'error', statusEl);
+										new Notice('Time blocks: calendar URL cannot be empty.');
+										return;
+									}
+									if (!trimmed.startsWith('https://')) {
+										this.setCalendarStatus(feed.id, 'error', statusEl);
+										new Notice('Time blocks: calendar URL must use HTTPS.');
+										return;
+									}
+
+									feed.url = trimmed;
+									await this.plugin.saveSettings();
+
+									this.setCalendarStatus(feed.id, 'checking', statusEl);
+									const ok = await this.verifyCalendarFeed(trimmed, label);
+									this.setCalendarStatus(feed.id, ok ? 'connected' : 'error', statusEl);
+								})
+						);
+
+						setting.addExtraButton((btn) =>
+							btn
+								.setIcon('trash')
+								.setTooltip('Remove calendar feed')
+								.onClick(async () => {
+									this.calendarConnectionStatus.delete(feed.id);
+									this.plugin.settings.calendarFeeds =
+										this.plugin.settings.calendarFeeds.filter(
+											(entry) => entry.id !== feed.id
+										);
+									await this.plugin.saveSettings();
+									this.update();
+								})
+						);
+
+						statusEl = setting.controlEl.createDiv({ cls: 'tb-calendar-status' });
+						const initialStatus =
+							this.calendarConnectionStatus.get(feed.id) ?? 'idle';
+						this.setCalendarStatus(feed.id, initialStatus, statusEl);
+					},
+				});
+			}
+		}
+		calendarFeedItems.push({
+			name: 'Add calendar feed',
+			desc: 'Connect another calendar feed.',
+			render: (setting: Setting) => {
+				setting.addButton((btn) =>
+					btn
+						.setButtonText('Add')
+						.setCta()
+						.onClick(async () => {
+							this.plugin.settings.calendarFeeds.push({
+								id: createCalendarFeedId(),
+								url: '',
+							});
+							await this.plugin.saveSettings();
+							this.update();
+						})
+				);
+			},
 		});
 
-		new Setting(containerEl)
-			.setName('Add calendar feed')
-			.setDesc('Connect another calendar feed.')
-			.addButton((btn) =>
-				btn
-					.setButtonText('Add')
-					.setCta()
-					.onClick(async () => {
-						this.plugin.settings.calendarFeeds.push({
-							id: createCalendarFeedId(),
-							url: '',
-						});
-						await this.plugin.saveSettings();
-						this.display();
-					})
-			);
-
-		// ── Two-way sync ─────────────────────────────────────────────────────
-		new Setting(containerEl).setName('Two-way sync').setHeading();
-
-		new Setting(containerEl)
-			.setName('Enable two-way sync')
-			.setDesc(
-				'Push scheduled blocks to Google Calendar and pull remote changes. ' +
-				'Requires a Google Cloud Console OAuth client ID.'
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.enableTwoWaySync)
-					.onChange(async (value) => {
-						this.plugin.settings.enableTwoWaySync = value;
-						await this.plugin.saveSettings();
-						this.display();
-					})
-			);
-
-		if (this.plugin.settings.enableTwoWaySync) {
-			new Setting(containerEl)
-				.setName('Calendar API client ID')
-				.setDesc(
-					'Your cloud console OAuth 2.0 client ID. ' +
-					'Create one at console.cloud.google.com with the calendar API enabled.'
-				)
-				.addText((text) =>
-					text
-						.setPlaceholder('Your client ID')
-						.setValue(this.plugin.settings.oauthClientId)
-						.onChange(async (value) => {
-							this.plugin.settings.oauthClientId = value.trim();
-							await this.plugin.saveSettings();
-						})
-				);
-
-			const isAuthenticated = this.plugin.settings.oauthTokens !== null;
-
-			if (!isAuthenticated && this.plugin.settings.oauthClientId) {
-				this.buildOAuthSignInUI(containerEl);
-			}
-
-			if (isAuthenticated) {
-				new Setting(containerEl)
-					.setName('Calendar account')
-					.setDesc('Signed in to your calendar account.')
-					.addButton((btn) =>
+		// ── Tag colors (dynamic) ─────────────────────────────────────────────
+		const tagColors = settings.tagColors;
+		const tagColorItems: SettingGroupItem[] = Object.keys(tagColors).map((tag) => ({
+			name: tag,
+			render: (setting: Setting) => {
+				setting
+					.addColorPicker((picker) =>
+						picker
+							.setValue(tagColors[tag] ?? settings.taskBlockColor)
+							.onChange(async (value) => {
+								settings.tagColors[tag] = value;
+								await this.plugin.saveSettings();
+							})
+					)
+					.addExtraButton((btn) =>
 						btn
-							.setButtonText('Sign out')
-							.setWarning()
+							.setIcon('trash')
+							.setTooltip('Remove tag color')
 							.onClick(async () => {
-								this.plugin.settings.oauthTokens = null;
+								delete settings.tagColors[tag];
 								await this.plugin.saveSettings();
-								new Notice('Time blocks: signed out of calendar.');
-								this.display();
+								this.update();
 							})
 					);
-
-				new Setting(containerEl)
-					.setName('Target calendar')
-					.setDesc(
-						'Calendar to push scheduled blocks into. ' +
-						'Enter a calendar ID or use "primary" for your main calendar.'
-					)
-					.addText((text) =>
-						text
-							.setPlaceholder('Calendar ID or primary')
-							.setValue(this.plugin.settings.syncCalendarId)
-							.onChange(async (value) => {
-								this.plugin.settings.syncCalendarId = value.trim() || 'primary';
-								await this.plugin.saveSettings();
-							})
-					)
-					.addButton((btn) =>
-						btn
-							.setButtonText('List calendars')
-							.onClick(async () => {
-								try {
-									const cals = await listCalendars({
-										getTokens: () => this.plugin.settings.oauthTokens,
-										saveTokens: async (tokens: OAuthTokens) => {
-											this.plugin.settings.oauthTokens = tokens;
-											await this.plugin.saveSettings();
-										},
-										clientId: this.plugin.settings.oauthClientId,
-									});
-									const writable = cals.filter(
-										(c) => c.accessRole === 'writer' || c.accessRole === 'owner'
-									);
-									const names = writable
-										.map((c) => `${c.summary} (${c.id})`)
-										.join('\n');
-									new Notice(
-										`Time blocks: writable calendars:\n${names || 'None found.'}`,
-									);
-								} catch (err) {
-									new Notice(`Time blocks: failed to list calendars: ${String(err)}`);
-								}
-							})
-					);
-
-				new Setting(containerEl)
-					.setName('Conflict resolution')
-					.setDesc(
-						'How to handle events edited in both Obsidian and the calendar.'
-					)
-					.addDropdown((dropdown) =>
-						dropdown
-							.addOption('ask', 'Ask each time')
-							.addOption('local-wins', 'Local wins')
-							.addOption('remote-wins', 'Remote wins')
-							.setValue(this.plugin.settings.conflictStrategy)
-							.onChange(async (value) => {
-								this.plugin.settings.conflictStrategy = value as ConflictStrategy;
-								await this.plugin.saveSettings();
-							})
-					);
-
-				new Setting(containerEl)
-					.setName('Writable calendars')
-					.setDesc(
-						'Comma-separated list of calendar IDs the plugin is allowed to write to. ' +
-						'Leave empty to only write to the target calendar above.'
-					)
-					.addText((text) =>
-						text
-							.setPlaceholder('Comma-separated calendar ID list')
-							.setValue(this.plugin.settings.writableCalendarIds.join(', '))
-							.onChange(async (value) => {
-								this.plugin.settings.writableCalendarIds = value
-									.split(',')
-									.map((s) => s.trim())
-									.filter(Boolean);
-								await this.plugin.saveSettings();
-							})
-					);
-			}
-		}
-
-		// ── Grid ─────────────────────────────────────────────────────────────
-		new Setting(containerEl).setName('Time grid').setHeading();
-
-		new Setting(containerEl)
-			.setName('Workday start (hour)')
-			.setDesc('First hour shown on the weekly grid (0 – 12).')
-			.addSlider((slider) =>
-				slider
-					.setLimits(0, 12, 1)
-					.setValue(this.plugin.settings.workdayStart)
-					.onChange(async (value) => {
-						this.plugin.settings.workdayStart = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName('Workday end (hour)')
-			.setDesc('Last hour shown on the weekly grid (12 – 24).')
-			.addSlider((slider) =>
-				slider
-					.setLimits(12, 24, 1)
-					.setValue(this.plugin.settings.workdayEnd)
-					.onChange(async (value) => {
-						this.plugin.settings.workdayEnd = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		// ── Tasks ─────────────────────────────────────────────────────────────
-		new Setting(containerEl).setName('Task backlog').setHeading();
-
-		new Setting(containerEl)
-			.setDesc(
-				'Backlog mode and the completed-tasks toggle are now available at the top of the Backlog sidebar panel. ' +
-				'Tag filters are available as clickable chips just below the search bar.'
-			);
-
-		new Setting(containerEl)
-			.setName('Default task duration (minutes)')
-			.setDesc('Duration applied when a task is first dropped onto the grid.')
-			.addSlider((slider) =>
-				slider
-					.setLimits(15, 240, 15)
-					.setValue(this.plugin.settings.defaultTaskDuration)
-					.onChange(async (value) => {
-						this.plugin.settings.defaultTaskDuration = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		// ── Colors ────────────────────────────────────────────────────────────
-		new Setting(containerEl).setName('Colors').setHeading();
-
-		new Setting(containerEl)
-			.setName('Task block color')
-			.setDesc('Background color for scheduled task blocks.')
-			.addColorPicker((picker) =>
-				picker
-					.setValue(this.plugin.settings.taskBlockColor)
-					.onChange(async (value) => {
-						this.plugin.settings.taskBlockColor = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName('Google calendar event color')
-			.setDesc('Color used for calendar event blocks.')
-			.addColorPicker((picker) =>
-				picker
-					.setValue(this.plugin.settings.gcalEventColor)
-					.onChange(async (value) => {
-						this.plugin.settings.gcalEventColor = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		// ── Tag colors ────────────────────────────────────────────────────────
-		new Setting(containerEl)
-			.setName('Tag colors')
-			.setDesc(
-				'Override the default task color for specific tags. ' +
-				'The first matching tag on a task determines its block color.'
-			)
-			.setHeading();
-
-		const tagColors = this.plugin.settings.tagColors;
-		for (const tag of Object.keys(tagColors)) {
-			new Setting(containerEl)
-				.setName(tag)
-				.addColorPicker((picker) =>
-					picker
-						.setValue(tagColors[tag] ?? this.plugin.settings.taskBlockColor)
-						.onChange(async (value) => {
-							this.plugin.settings.tagColors[tag] = value;
-							await this.plugin.saveSettings();
-						})
-				)
-				.addExtraButton((btn) =>
-					btn
-						.setIcon('trash')
-						.setTooltip('Remove tag color')
-						.onClick(async () => {
-							delete this.plugin.settings.tagColors[tag];
-							await this.plugin.saveSettings();
-							this.display();
-						})
-				);
-		}
-
+			},
+		}));
 		let newTag = '';
-		new Setting(containerEl)
-			.setName('Add tag color')
-			.setDesc('Enter a tag (e.g. #work) and pick a color.')
-			.addText((text) =>
-				text
-					.setPlaceholder('#tag')
-					.setValue(newTag)
-					.onChange((value) => {
-						newTag = value;
-					})
-			)
-			.addButton((btn) =>
-				btn
-					.setButtonText('Add')
-					.setCta()
-					.onClick(async () => {
-						const trimmed = newTag.trim();
-						if (trimmed.length === 0) return;
-						const normalized = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
-						if (this.plugin.settings.tagColors[normalized]) {
-							new Notice(`Tag color for ${normalized} already exists.`);
-							return;
-						}
-						this.plugin.settings.tagColors[normalized] =
-							this.plugin.settings.taskBlockColor;
-						await this.plugin.saveSettings();
-						this.display();
-					})
-			);
-	}
+		tagColorItems.push({
+			name: 'Add tag color',
+			desc: 'Enter a tag (e.g. #work) and pick a color.',
+			render: (setting: Setting) => {
+				setting
+					.addText((text) =>
+						text
+							.setPlaceholder('#tag')
+							.onChange((value) => {
+								newTag = value;
+							})
+					)
+					.addButton((btn) =>
+						btn
+							.setButtonText('Add')
+							.setCta()
+							.onClick(async () => {
+								const trimmed = newTag.trim();
+								if (trimmed.length === 0) return;
+								const normalized = trimmed.startsWith('#')
+									? trimmed
+									: `#${trimmed}`;
+								if (settings.tagColors[normalized]) {
+									new Notice(`Tag color for ${normalized} already exists.`);
+									return;
+								}
+								settings.tagColors[normalized] = settings.taskBlockColor;
+								await this.plugin.saveSettings();
+								this.update();
+							})
+					);
+			},
+		});
 
-	private buildOAuthSignInUI(containerEl: HTMLElement): void {
+		// ── Auth code input (closure variable shared by sign-in items) ───────
 		let authCodeInput = '';
 
-		const signInSetting = new Setting(containerEl)
-			.setName('Calendar sign-in')
-			.setDesc(
-				'Click "Authorize" to open the sign-in page in your browser. ' +
-				'After granting access, paste the full redirect URL (or just the code) below.'
-			);
+		return [
+			// ── Time grid ────────────────────────────────────────────────────
+			{
+				type: 'group',
+				heading: 'Time grid',
+				items: [
+					{
+						name: 'Workday start (hour)',
+						desc: 'First hour shown on the weekly grid (0 – 12).',
+						control: {
+							type: 'slider',
+							key: 'workdayStart',
+							min: 0,
+							max: 12,
+							step: 1,
+							defaultValue: DEFAULT_SETTINGS.workdayStart,
+						},
+					},
+					{
+						name: 'Workday end (hour)',
+						desc: 'Last hour shown on the weekly grid (12 – 24).',
+						control: {
+							type: 'slider',
+							key: 'workdayEnd',
+							min: 12,
+							max: 24,
+							step: 1,
+							defaultValue: DEFAULT_SETTINGS.workdayEnd,
+						},
+					},
+				],
+			},
+			// ── Task backlog ─────────────────────────────────────────────────
+			{
+				type: 'group',
+				heading: 'Task backlog',
+				items: [
+					{
+						name: '',
+						desc:
+							'Backlog mode and the completed-tasks toggle are now available at the top of the Backlog sidebar panel. ' +
+							'Tag filters are available as clickable chips just below the search bar.',
+						searchable: false,
+					},
+					{
+						name: 'Default task duration (minutes)',
+						desc: 'Duration applied when a task is first dropped onto the grid.',
+						control: {
+							type: 'slider',
+							key: 'defaultTaskDuration',
+							min: 15,
+							max: 240,
+							step: 15,
+							defaultValue: DEFAULT_SETTINGS.defaultTaskDuration,
+						},
+					},
+				],
+			},
+			// ── Colors ───────────────────────────────────────────────────────
+			{
+				type: 'group',
+				heading: 'Colors',
+				items: [
+					{
+						name: 'Task block color',
+						desc: 'Background color for scheduled task blocks.',
+						control: {
+							type: 'color',
+							key: 'taskBlockColor',
+							defaultValue: DEFAULT_SETTINGS.taskBlockColor,
+						},
+					},
+					{
+						name: 'Google calendar event color',
+						desc: 'Color used for calendar event blocks.',
+						control: {
+							type: 'color',
+							key: 'gcalEventColor',
+							defaultValue: DEFAULT_SETTINGS.gcalEventColor,
+						},
+					},
+				],
+			},
+			// ── Google calendar ──────────────────────────────────────────────
+			{
+				type: 'group',
+				heading: 'Google calendar',
+				items: calendarFeedItems,
+			},
+			// ── Two-way sync ─────────────────────────────────────────────────
+			{
+				type: 'group',
+				heading: 'Two-way sync',
+				items: [
+					{
+						name: 'Enable two-way sync',
+						desc:
+							'Push scheduled blocks to Google Calendar and pull remote changes. ' +
+							'Requires a Google Cloud Console OAuth client ID.',
+						control: {
+							type: 'toggle',
+							key: 'enableTwoWaySync',
+							defaultValue: DEFAULT_SETTINGS.enableTwoWaySync,
+						},
+					},
+					{
+						name: 'Calendar API client ID',
+						desc:
+							'Your cloud console OAuth 2.0 client ID. ' +
+							'Create one at console.cloud.google.com with the calendar API enabled.',
+						control: {
+							type: 'text',
+							key: 'oauthClientId',
+							placeholder: 'Your client ID',
+							defaultValue: DEFAULT_SETTINGS.oauthClientId,
+						},
+						visible: () => settings.enableTwoWaySync,
+					},
+					// OAuth sign-in UI (shown when sync enabled, no tokens, client ID present)
+					{
+						name: 'Calendar sign-in',
+						desc:
+							'Click "Authorize" to open the sign-in page in your browser. ' +
+							'After granting access, paste the full redirect URL (or just the code) below.',
+						visible: () =>
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							!!settings.oauthClientId,
+						render: (setting: Setting) => {
+							setting.addButton((btn) =>
+								btn
+									.setButtonText('Authorize')
+									.setCta()
+									.onClick(async () => {
+										// Re-entrant: reopen the same URL if a flow is already
+										// in progress rather than generating a new verifier.
+										if (this.pendingCodeVerifier && this.pendingAuthUrl) {
+											window.open(this.pendingAuthUrl);
+											return;
+										}
 
-		signInSetting.addButton((btn) =>
-			btn
-				.setButtonText('Authorize')
-				.setCta()
-				.onClick(async () => {
-					// Re-entrant: reopen the same URL if a flow is already in progress
-					// rather than generating a new verifier and invalidating the old one.
-					if (this.pendingCodeVerifier && this.pendingAuthUrl) {
-						window.open(this.pendingAuthUrl);
-						return;
-					}
-
-					const verifier = generateCodeVerifier();
-					const state = generateState();
-					this.pendingCodeVerifier = verifier;
-					this.pendingState = state;
-					const challenge = await generateCodeChallenge(verifier);
-					const url = buildAuthUrl({
-						clientId: this.plugin.settings.oauthClientId,
-						codeChallenge: challenge,
-						scopes: CALENDAR_SCOPES,
-						state,
-					});
-					this.pendingAuthUrl = url;
-					window.open(url);
-				})
-		);
-
-		new Setting(containerEl)
-			.setName('Authorization code')
-			.setDesc(
-				'Paste the full redirect URL from your browser address bar ' +
-				'(e.g. http://127.0.0.1?code=…&state=…) or just the code. ' +
-				'Pasting the full URL allows the plugin to verify the state ' +
-				'parameter and protect against cross-site request forgery (CSRF).'
-			)
-			.addText((text) =>
-				text
-					.setPlaceholder('http://127.0.0.1?code=… or just the code')
-					.onChange((value) => {
-						authCodeInput = value;
-					})
-			)
-			.addButton((btn) =>
-				btn
-					.setButtonText('Submit')
-					.setCta()
-					.onClick(async () => {
-						const trimmed = authCodeInput.trim();
-						if (!trimmed) {
-							new Notice('Time blocks: please enter the authorization code.');
-							return;
-						}
-						if (!this.pendingCodeVerifier) {
-							new Notice('Time blocks: click authorize first.');
-							return;
-						}
-
-						// Extract code (and optionally state) from the pasted value.
-						// Accept either a full redirect URL or a bare authorization code.
-						let code = trimmed;
-						let receivedState: string | null = null;
-
-						try {
-							const parsedUrl = new URL(trimmed);
-							const codeParam = parsedUrl.searchParams.get('code');
-							if (codeParam) {
-								code = codeParam;
-								receivedState = parsedUrl.searchParams.get('state');
-							}
-						} catch {
-							// Not a URL — treat the whole string as the bare code.
-						}
-
-						// Validate state when the redirect URL supplies one.
-						// Reject if: a state was received but doesn't match what we generated,
-						// OR if a state was received but we have no expected state (shouldn't
-						// happen if the Authorize button was clicked, but guards edge cases).
-						if (
-							receivedState !== null &&
-							(this.pendingState === null || receivedState !== this.pendingState)
-						) {
-							new Notice(
-								'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
+										const verifier = generateCodeVerifier();
+										const state = generateState();
+										this.pendingCodeVerifier = verifier;
+										this.pendingState = state;
+										const challenge = await generateCodeChallenge(verifier);
+										const url = buildAuthUrl({
+											clientId: settings.oauthClientId,
+											codeChallenge: challenge,
+											scopes: CALENDAR_SCOPES,
+											state,
+										});
+										this.pendingAuthUrl = url;
+										window.open(url);
+									})
 							);
-							this.pendingCodeVerifier = null;
-							this.pendingState = null;
-							this.pendingAuthUrl = null;
-							return;
-						}
+						},
+					},
+					{
+						name: 'Authorization code',
+						desc:
+							'Paste the full redirect URL from your browser address bar ' +
+							'(e.g. http://127.0.0.1?code=…&state=…) or just the code. ' +
+							'Pasting the full URL allows the plugin to verify the state ' +
+							'parameter and protect against cross-site request forgery (CSRF).',
+						visible: () =>
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							!!settings.oauthClientId,
+						render: (setting: Setting) => {
+							setting
+								.addText((text) =>
+									text
+										.setPlaceholder('http://127.0.0.1?code=… or just the code')
+										.onChange((value) => {
+											authCodeInput = value;
+										})
+								)
+								.addButton((btn) =>
+									btn
+										.setButtonText('Submit')
+										.setCta()
+										.onClick(async () => {
+											const trimmed = authCodeInput.trim();
+											if (!trimmed) {
+												new Notice(
+													'Time blocks: please enter the authorization code.'
+												);
+												return;
+											}
+											if (!this.pendingCodeVerifier) {
+												new Notice('Time blocks: click authorize first.');
+												return;
+											}
 
-						try {
-							const tokens = await exchangeCodeForTokens({
-								clientId: this.plugin.settings.oauthClientId,
-								code,
-								codeVerifier: this.pendingCodeVerifier,
-							});
-							this.plugin.settings.oauthTokens = tokens;
-							await this.plugin.saveSettings();
-							this.pendingCodeVerifier = null;
-							this.pendingState = null;
-							this.pendingAuthUrl = null;
-							new Notice('Time blocks: signed in to calendar.');
-							this.display();
-						} catch (err) {
-							new Notice(
-								`Time blocks: authentication failed: ${String(err)}`
+											// Accept either a full redirect URL or a bare code.
+											let code = trimmed;
+											let receivedState: string | null = null;
+
+											try {
+												const parsedUrl = new URL(trimmed);
+												const codeParam = parsedUrl.searchParams.get('code');
+												if (codeParam) {
+													code = codeParam;
+													receivedState =
+														parsedUrl.searchParams.get('state');
+												}
+											} catch {
+												// Not a URL — treat as bare code.
+											}
+
+											// Validate state to guard against CSRF.
+											if (
+												receivedState !== null &&
+												(this.pendingState === null ||
+													receivedState !== this.pendingState)
+											) {
+												new Notice(
+													'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
+												);
+												this.pendingCodeVerifier = null;
+												this.pendingState = null;
+												this.pendingAuthUrl = null;
+												return;
+											}
+
+											try {
+												const tokens = await exchangeCodeForTokens({
+													clientId: settings.oauthClientId,
+													code,
+													codeVerifier: this.pendingCodeVerifier,
+												});
+												settings.oauthTokens = tokens;
+												await this.plugin.saveSettings();
+												this.pendingCodeVerifier = null;
+												this.pendingState = null;
+												this.pendingAuthUrl = null;
+												new Notice('Time blocks: signed in to calendar.');
+												this.refreshDomState();
+											} catch (err) {
+												new Notice(
+													`Time blocks: authentication failed: ${String(err)}`
+												);
+											}
+										})
+								);
+						},
+					},
+					// Authenticated items
+					{
+						name: 'Calendar account',
+						desc: 'Signed in to your calendar account.',
+						visible: () =>
+							settings.enableTwoWaySync && settings.oauthTokens !== null,
+						render: (setting: Setting) => {
+							setting.addButton((btn) =>
+								btn
+									.setButtonText('Sign out')
+									.setDestructive()
+									.onClick(async () => {
+										settings.oauthTokens = null;
+										await this.plugin.saveSettings();
+										new Notice('Time blocks: signed out of calendar.');
+										this.refreshDomState();
+									})
 							);
-						}
-					})
-			);
+						},
+					},
+					{
+						name: 'Target calendar',
+						desc:
+							'Calendar to push scheduled blocks into. ' +
+							'Enter a calendar ID or use "primary" for your main calendar.',
+						visible: () =>
+							settings.enableTwoWaySync && settings.oauthTokens !== null,
+						render: (setting: Setting) => {
+							setting
+								.addText((text) =>
+									text
+										.setPlaceholder('Calendar ID or primary')
+										.setValue(settings.syncCalendarId)
+										.onChange(async (value) => {
+											settings.syncCalendarId = value.trim() || 'primary';
+											await this.plugin.saveSettings();
+										})
+								)
+								.addButton((btn) =>
+									btn
+										.setButtonText('List calendars')
+										.onClick(async () => {
+											try {
+												const cals = await listCalendars({
+													getTokens: () => settings.oauthTokens,
+													saveTokens: async (tokens: OAuthTokens) => {
+														settings.oauthTokens = tokens;
+														await this.plugin.saveSettings();
+													},
+													clientId: settings.oauthClientId,
+												});
+												const writable = cals.filter(
+													(c) =>
+														c.accessRole === 'writer' ||
+														c.accessRole === 'owner'
+												);
+												const names = writable
+													.map((c) => `${c.summary} (${c.id})`)
+													.join('\n');
+												new Notice(
+													`Time blocks: writable calendars:\n${names || 'None found.'}`
+												);
+											} catch (err) {
+												new Notice(
+													`Time blocks: failed to list calendars: ${String(err)}`
+												);
+											}
+										})
+								);
+						},
+					},
+					{
+						name: 'Conflict resolution',
+						desc: 'How to handle events edited in both Obsidian and the calendar.',
+						visible: () =>
+							settings.enableTwoWaySync && settings.oauthTokens !== null,
+						control: {
+							type: 'dropdown',
+							key: 'conflictStrategy',
+							options: {
+								ask: 'Ask each time',
+								'local-wins': 'Local wins',
+								'remote-wins': 'Remote wins',
+							},
+							defaultValue: DEFAULT_SETTINGS.conflictStrategy,
+						},
+					},
+					{
+						name: 'Writable calendars',
+						desc:
+							'Comma-separated list of calendar IDs the plugin is allowed to write to. ' +
+							'Leave empty to only write to the target calendar above.',
+						visible: () =>
+							settings.enableTwoWaySync && settings.oauthTokens !== null,
+						render: (setting: Setting) => {
+							setting.addText((text) =>
+								text
+									.setPlaceholder('Comma-separated calendar ID list')
+									.setValue(settings.writableCalendarIds.join(', '))
+									.onChange(async (value) => {
+										settings.writableCalendarIds = value
+											.split(',')
+											.map((s) => s.trim())
+											.filter(Boolean);
+										await this.plugin.saveSettings();
+									})
+							);
+						},
+					},
+				],
+			},
+			// ── Tag colors ───────────────────────────────────────────────────
+			{
+				type: 'group',
+				heading: 'Tag colors',
+				items: [
+					{
+						name: '',
+						desc:
+							'Override the default task color for specific tags. ' +
+							'The first matching tag on a task determines its block color.',
+						searchable: false,
+					},
+					...tagColorItems,
+				],
+			},
+		];
+	}
+
+	override setControlValue(key: string, value: unknown): Promise<void> {
+		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+		return this.plugin.saveSettings().then(() => {
+			this.refreshDomState();
+		});
 	}
 
 	private setCalendarStatus(
