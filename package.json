@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-time-blocks",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Weekly time-blocking canvas with Tasks-plugin backlog, drag-and-drop scheduling, and Google Calendar integration.",
 	"main": "main.js",
 	"type": "module",
