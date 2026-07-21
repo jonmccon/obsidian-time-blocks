@@ -2,7 +2,7 @@
 
 All notable changes to **Time Blocks** are documented in this file.
 
-## [1.1.0] – 2026-07-12
+## [1.0.2] – 2026-07-21
 
 ### Features
 
@@ -16,6 +16,8 @@ All notable changes to **Time Blocks** are documented in this file.
 - **Overdue scheduled-task surfacing** — Tasks with a past `⏰` scheduled date are pinned to the top of the backlog with a subtle red indicator and a one-click "Clear" action ([#15](https://github.com/jonmccon/obsidian-time-blocks/pull/15))
 - **Sidebar resizer** — Draggable resize handle between the backlog panel and the calendar grid (constrained 150–600 px); task titles changed from buttons to links ([#13](https://github.com/jonmccon/obsidian-time-blocks/pull/13))
 - **Inline filter examples in settings** — Representative query examples rendered under the custom query textarea to guide users ([#9](https://github.com/jonmccon/obsidian-time-blocks/pull/9))
+- **Backlog filter controls in sidebar + tag chip viewer** — Backlog mode and completed-task toggles moved from Settings into the sidebar panel; clickable multi-select tag chips for filtering ([#16](https://github.com/jonmccon/obsidian-time-blocks/pull/16))
+- **Interactive CI preview** — Per-PR GitHub Pages preview at `pr-<number>/` with full drag-and-drop, navigation, search, and `localStorage` persistence (no vault required) ([#17](https://github.com/jonmccon/obsidian-time-blocks/pull/17), [#20](https://github.com/jonmccon/obsidian-time-blocks/pull/20))
 
 ### Bug Fixes
 
@@ -27,17 +29,27 @@ All notable changes to **Time Blocks** are documented in this file.
 - **Test infrastructure** — Vitest setup with Obsidian API mock; 173+ unit tests across `weekUtils`, `icsParser`, `queryFilter`, `taskQuery`, `gcal/*` modules ([#5](https://github.com/jonmccon/obsidian-time-blocks/pull/5), [#10](https://github.com/jonmccon/obsidian-time-blocks/pull/10))
 - **CI workflow** — Consolidated lint + build + test pipeline in `.github/workflows/ci.yml` ([#5](https://github.com/jonmccon/obsidian-time-blocks/pull/5))
 - **Release workflow** — `.github/workflows/release.yml` builds on tag push and creates a GitHub release with `main.js`, `manifest.json`, and `styles.css` attached ([#11](https://github.com/jonmccon/obsidian-time-blocks/pull/11))
-- **Interactive CI preview** — Per-PR GitHub Pages preview at `pr-<number>/` with full drag-and-drop, navigation, search, and `localStorage` persistence (no vault required) ([#17](https://github.com/jonmccon/obsidian-time-blocks/pull/17), [#20](https://github.com/jonmccon/obsidian-time-blocks/pull/20))
 - **AGENTS.md** — Comprehensive agent guide covering the data model, vault task format, and step-by-step recipes for programmatic scheduling ([#18](https://github.com/jonmccon/obsidian-time-blocks/pull/18))
 - **README** — Full feature documentation, installation paths (build from source, GitHub Releases, BRAT), settings reference, and project structure ([#2](https://github.com/jonmccon/obsidian-time-blocks/pull/2), [#6](https://github.com/jonmccon/obsidian-time-blocks/pull/6))
 
-### In Progress
+---
 
-- **Backlog filter controls in sidebar + tag chip viewer** — Moves backlog mode and completed-task toggles from Settings into the sidebar panel; adds clickable multi-select tag chips for filtering ([#16](https://github.com/jonmccon/obsidian-time-blocks/pull/16))
-- **Quick-filter bar** — Status pills (Open / Done / All) and a sort dropdown (Default / Priority / Due date / Name) added to the backlog sidebar above the task list ([#19](https://github.com/jonmccon/obsidian-time-blocks/pull/19))
+## [1.0.1] – 2026-07-12
+
+### Bug Fixes
+
+- **Obsidian community plugin review failures** — `minAppVersion` updated from `0.15.0` to `1.4.0` to match actual API usage (`getLeaf('tab')`, `revealLeaf`, `addColorPicker`, `addExtraButton`); `authorUrl` corrected to personal GitHub profile per submission requirements; deprecated API calls replaced with current equivalents ([#22](https://github.com/jonmccon/obsidian-time-blocks/pull/22))
+- **version-bump.mjs silently skipping versions.json** — Removed guard that prevented writing an entry when the `minAppVersion` already existed as a value; every release tag now appears as a key ([#21](https://github.com/jonmccon/obsidian-time-blocks/pull/21))
 
 ---
 
 ## [1.0.0] – 2026-03-16
 
 Initial release. Scaffolded the full plugin with a weekly time-block canvas, Tasks-plugin-compatible backlog sidebar, ICS calendar feed support, and Google Calendar integration groundwork.
+
+---
+
+### In Progress
+
+- **Quick-filter bar** — Status pills (Open / Done / All) and a sort dropdown (Default / Priority / Due date / Name) added to the backlog sidebar above the task list ([#19](https://github.com/jonmccon/obsidian-time-blocks/pull/19))
+- **OAuth security hardening** — CSRF state parameter validation, token endpoint error handling, re-entrant authorization guard, and token storage documentation ([#25](https://github.com/jonmccon/obsidian-time-blocks/pull/25))
