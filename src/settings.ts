@@ -390,7 +390,6 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(0, 12, 1)
 					.setValue(this.plugin.settings.workdayStart)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						this.plugin.settings.workdayStart = value;
 						await this.plugin.saveSettings();
@@ -404,7 +403,6 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(12, 24, 1)
 					.setValue(this.plugin.settings.workdayEnd)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						this.plugin.settings.workdayEnd = value;
 						await this.plugin.saveSettings();
@@ -427,7 +425,6 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(15, 240, 15)
 					.setValue(this.plugin.settings.defaultTaskDuration)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						this.plugin.settings.defaultTaskDuration = value;
 						await this.plugin.saveSettings();
@@ -630,7 +627,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
  */
 export function createCalendarFeedId(): string {
 	// Prefer randomUUID, then getRandomValues, and finally timestamp + Math.random.
-	const cryptoObj = globalThis.crypto;
+	const cryptoObj = window.crypto;
 	if (cryptoObj?.randomUUID) {
 		return `calendar-${cryptoObj.randomUUID()}`;
 	}
