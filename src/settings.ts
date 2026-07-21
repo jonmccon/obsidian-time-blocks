@@ -393,7 +393,6 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(0, 12, 1)
 					.setValue(this.plugin.settings.workdayStart)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						this.plugin.settings.workdayStart = value;
 						await this.plugin.saveSettings();
@@ -407,7 +406,6 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 				slider
 					.setLimits(12, 24, 1)
 					.setValue(this.plugin.settings.workdayEnd)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						this.plugin.settings.workdayEnd = value;
 						await this.plugin.saveSettings();
@@ -418,111 +416,23 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('Task backlog').setHeading();
 
 		new Setting(containerEl)
+			.setDesc(
+				'Backlog mode and the completed-tasks toggle are now available at the top of the Backlog sidebar panel. ' +
+				'Tag filters are available as clickable chips just below the search bar.'
+			);
+
+		new Setting(containerEl)
 			.setName('Default task duration (minutes)')
 			.setDesc('Duration applied when a task is first dropped onto the grid.')
 			.addSlider((slider) =>
 				slider
 					.setLimits(15, 240, 15)
 					.setValue(this.plugin.settings.defaultTaskDuration)
-					.setDynamicTooltip()
 					.onChange(async (value) => {
 						this.plugin.settings.defaultTaskDuration = value;
 						await this.plugin.saveSettings();
 					})
 			);
-
-		new Setting(containerEl)
-			.setName('Backlog mode')
-			.setDesc(
-				'Choose how the sidebar backlog is populated. ' +
-				'"All tasks" shows every task (with optional tag filter). ' +
-				'"Custom query" applies a multi-line query using Tasks-plugin-compatible syntax.'
-			)
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOption('all', 'All tasks')
-					.addOption('custom', 'Custom query')
-					.setValue(this.plugin.settings.backlogMode)
-					.onChange(async (value) => {
-						this.plugin.settings.backlogMode = value as 'all' | 'custom';
-						await this.plugin.saveSettings();
-						// Redraw to show/hide mode-specific controls
-						this.display();
-					})
-			);
-
-		// ── "All tasks" mode controls ──────────────────────────────────────
-		if (this.plugin.settings.backlogMode === 'all') {
-			new Setting(containerEl)
-				.setName('Tag filter')
-				.setDesc(
-					'Only show tasks with this tag in the backlog (e.g. #work). ' +
-					'Leave blank to include all tasks.'
-				)
-				.addText((text) =>
-					text
-						.setPlaceholder('#work')
-						.setValue(this.plugin.settings.taskTagFilter)
-						.onChange(async (value) => {
-							this.plugin.settings.taskTagFilter = value;
-							await this.plugin.saveSettings();
-						})
-				);
-
-			new Setting(containerEl)
-				.setName('Show completed tasks')
-				.setDesc('Include tasks marked done in the backlog.')
-				.addToggle((toggle) =>
-					toggle
-						.setValue(this.plugin.settings.showCompletedTasks)
-						.onChange(async (value) => {
-							this.plugin.settings.showCompletedTasks = value;
-							await this.plugin.saveSettings();
-						})
-				);
-		}
-
-		// ── "Custom query" mode controls ───────────────────────────────────
-		if (this.plugin.settings.backlogMode === 'custom') {
-			const queryDescription = document.createDocumentFragment();
-			const summary = document.createElement('p');
-			summary.textContent =
-				'One filter rule per line, using Obsidian Tasks query syntax. ' +
-				'Rules are ANDed together. Lines starting with # are comments.';
-			queryDescription.appendChild(summary);
-
-			const exampleLabel = document.createElement('p');
-			exampleLabel.textContent = 'Examples:';
-			queryDescription.appendChild(exampleLabel);
-
-			const examples = document.createElement('ul');
-			for (const example of [
-				'Not done',
-				'Due before 2025-12-31',
-				'Tag includes #work',
-				'Limit to 20 tasks',
-			]) {
-				const item = document.createElement('li');
-				item.textContent = example;
-				examples.appendChild(item);
-			}
-			queryDescription.appendChild(examples);
-
-			new Setting(containerEl)
-				.setName('Custom query')
-				.setDesc(queryDescription)
-				.addTextArea((area) => {
-					area
-						.setPlaceholder('Enter query rules, one per line')
-						.setValue(this.plugin.settings.customTaskQuery)
-						.onChange(async (value) => {
-							this.plugin.settings.customTaskQuery = value;
-							await this.plugin.saveSettings();
-						});
-					area.inputEl.rows = 6;
-					area.inputEl.addClass('tb-query-textarea');
-				});
-		}
 
 		// ── Colors ────────────────────────────────────────────────────────────
 		new Setting(containerEl).setName('Colors').setHeading();
@@ -771,7 +681,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
  */
 export function createCalendarFeedId(): string {
 	// Prefer randomUUID, then getRandomValues, and finally timestamp + Math.random.
-	const cryptoObj = globalThis.crypto;
+	const cryptoObj = window.crypto;
 	if (cryptoObj?.randomUUID) {
 		return `calendar-${cryptoObj.randomUUID()}`;
 	}

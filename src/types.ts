@@ -30,6 +30,8 @@ export interface TaskItem {
 	id: string;
 	title: string;
 	dueDate?: Date;
+	/** Tasks-plugin scheduled date (⏰ YYYY-MM-DD): when you plan to work on it. */
+	scheduledDate?: Date;
 	/** 1 = highest … 5 = lowest */
 	priority?: number;
 	filePath: string;

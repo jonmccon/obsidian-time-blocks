@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseTaskLine, scanAllTasks, updateTaskLineCompletion } from '../src/utils/taskQuery';
+import { parseTaskLine, scanAllTasks, updateTaskLineCompletion, clearTaskScheduledDate } from '../src/utils/taskQuery';
+import { TFile } from 'obsidian';
 import type { App } from 'obsidian';
+import type { TaskItem } from '../src/types';
 
 describe('parseTaskLine', () => {
 	it('parses a basic incomplete task', () => {
@@ -96,6 +98,34 @@ describe('parseTaskLine', () => {
 		expect(task?.dueDate).toBeUndefined();
 	});
 
+	it('parses scheduled date emoji (⏰ YYYY-MM-DD)', () => {
+		const task = parseTaskLine('- [ ] Write tests ⏰ 2025-03-10', 'work.md', 7);
+		expect(task).not.toBeNull();
+		expect(task?.scheduledDate).toBeDefined();
+		expect(task?.scheduledDate?.getFullYear()).toBe(2025);
+		expect(task?.scheduledDate?.getMonth()).toBe(2); // March
+		expect(task?.scheduledDate?.getDate()).toBe(10);
+		// Scheduled date emoji should be stripped from the title
+		expect(task?.title).not.toContain('⏰');
+		expect(task?.title).not.toContain('2025-03-10');
+	});
+
+	it('returns undefined scheduledDate when no ⏰ marker is present', () => {
+		const task = parseTaskLine('- [ ] Simple task', 'f.md', 1);
+		expect(task?.scheduledDate).toBeUndefined();
+	});
+
+	it('parses both due date and scheduled date when both are present', () => {
+		const task = parseTaskLine(
+			'- [ ] Deploy app 📅 2025-08-01 ⏰ 2025-07-25',
+			'work.md',
+			5,
+		);
+		expect(task?.dueDate?.getMonth()).toBe(7); // August
+		expect(task?.scheduledDate?.getMonth()).toBe(6); // July
+		expect(task?.title).toBe('Deploy app');
+	});
+
 	it('handles tasks with complex content', () => {
 		const task = parseTaskLine(
 			'- [ ] Review #code and deploy ⏫ 📅 2025-07-01 #devops',
@@ -131,6 +161,64 @@ describe('updateTaskLineCompletion', () => {
 	it('returns null for non-task lines', () => {
 		const updated = updateTaskLineCompletion('Regular text', true);
 		expect(updated).toBeNull();
+	});
+});
+
+describe('clearTaskScheduledDate', () => {
+	function makeTask(line: string, lineNumber = 1): TaskItem {
+		return parseTaskLine(line, 'tasks.md', lineNumber) as TaskItem;
+	}
+
+	function makeApp(lines: string[]) {
+		const content = lines.join('\n');
+		let stored = content;
+
+		class MockFile extends TFile {
+			override path = 'tasks.md';
+		}
+		const file = new MockFile();
+
+		return {
+			vault: {
+				getAbstractFileByPath: () => file,
+				read: async () => stored,
+				modify: async (_f: unknown, newContent: string) => {
+					stored = newContent;
+				},
+				get: () => stored,
+			},
+			_stored: () => stored,
+		} as unknown as Parameters<typeof clearTaskScheduledDate>[0];
+	}
+
+	it('removes the ⏰ date token from a task line', async () => {
+		const line = '- [ ] Write tests ⏰ 2025-03-10';
+		const task = makeTask(line);
+		const app = makeApp([line]);
+		const result = await clearTaskScheduledDate(app, task);
+		expect(result).toBe(true);
+		const stored = (app as unknown as { _stored: () => string })._stored();
+		expect(stored).toBe('- [ ] Write tests');
+	});
+
+	it('removes ⏰ date even when surrounded by other metadata', async () => {
+		const line = '- [ ] Deploy app 📅 2025-08-01 ⏰ 2025-07-25';
+		const task = makeTask(line);
+		const app = makeApp([line]);
+		await clearTaskScheduledDate(app, task);
+		const stored = (app as unknown as { _stored: () => string })._stored();
+		expect(stored).not.toContain('⏰');
+		expect(stored).toContain('📅 2025-08-01');
+	});
+
+	it('returns true and leaves file unchanged when no ⏰ token is present', async () => {
+		const line = '- [ ] No scheduled date';
+		const task = makeTask(line);
+		const app = makeApp([line]);
+		const result = await clearTaskScheduledDate(app, task);
+		expect(result).toBe(true);
+		const stored = (app as unknown as { _stored: () => string })._stored();
+		expect(stored).toBe(line);
 	});
 });
 

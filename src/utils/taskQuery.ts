@@ -39,6 +39,15 @@ export function parseTaskLine(
 		title = title.replace(/📅\s*\d{4}-\d{2}-\d{2}/, '').trim();
 	}
 
+	// --- Parse scheduled date (Tasks plugin: ⏰ YYYY-MM-DD) ---
+	let scheduledDate: Date | undefined;
+	const scheduledDateMatch = title.match(/⏰\s*(\d{4}-\d{2}-\d{2})/);
+	if (scheduledDateMatch) {
+		const raw = scheduledDateMatch[1];
+		if (raw) scheduledDate = new Date(`${raw}T00:00:00`);
+		title = title.replace(/⏰\s*\d{4}-\d{2}-\d{2}/, '').trim();
+	}
+
 	// --- Parse priority ---
 	let priority: number | undefined;
 	const prioMatch = title.match(PRIORITY_REGEX);
@@ -64,6 +73,7 @@ export function parseTaskLine(
 		id: `${filePath}:${lineNumber}`,
 		title,
 		dueDate,
+		scheduledDate,
 		priority,
 		filePath,
 		lineNumber,
@@ -100,6 +110,33 @@ export async function setTaskCompletion(
 	const updated = updateTaskLineCompletion(currentLine, completed);
 	if (!updated) return false;
 	if (updated === lines[index]) return true;
+
+	lines[index] = updated;
+	await app.vault.modify(file, lines.join('\n'));
+	return true;
+}
+
+/**
+ * Removes the scheduled-date token (⏰ YYYY-MM-DD) from a task line in the
+ * vault.  Returns true if the file was updated (or no change was needed),
+ * false if the file could not be found or the line is not a valid task.
+ */
+export async function clearTaskScheduledDate(
+	app: App,
+	task: TaskItem
+): Promise<boolean> {
+	const file = app.vault.getAbstractFileByPath(task.filePath);
+	if (!(file instanceof TFile)) return false;
+
+	const content = await app.vault.read(file);
+	const lines = content.split('\n');
+	const index = task.lineNumber - 1;
+	if (index < 0 || index >= lines.length) return false;
+
+	const currentLine = lines[index]!;
+	// Remove "⏰ YYYY-MM-DD" (with optional surrounding spaces)
+	const updated = currentLine.replace(/\s*⏰\s*\d{4}-\d{2}-\d{2}/g, '').trimEnd();
+	if (updated === currentLine) return true; // Nothing to remove
 
 	lines[index] = updated;
 	await app.vault.modify(file, lines.join('\n'));

@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-time-blocks",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Weekly time-blocking canvas with Tasks-plugin backlog, drag-and-drop scheduling, and Google Calendar integration.",
 	"main": "main.js",
 	"type": "module",
@@ -8,9 +8,10 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint .",
+		"lint": "eslint \"src/**/*.ts\"",
 		"test": "vitest run",
-		"test:watch": "vitest"
+		"test:watch": "vitest",
+		"preview:build": "npm run build && cp styles.css preview/ && cp main.js preview/"
 	},
 	"keywords": [],
 	"license": "0-BSD",

@@ -32,5 +32,6 @@ export default tseslint.config(
 		"main.js",
 		"tests",
 		"vitest.config.ts",
+		"preview",
 	]),
 );
