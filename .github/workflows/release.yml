@@ -7,6 +7,8 @@ on:
 
 permissions:
     contents: write
+    id-token: write
+    attestations: write
 
 jobs:
     build:
@@ -23,6 +25,26 @@ jobs:
 
             - run: npm ci
             - run: npm run build
+
+            - name: Collect attestation subjects
+              id: attest-subjects
+              run: |
+                  files="main.js
+                  manifest.json"
+                  if [ -f styles.css ]; then
+                    files="$files
+                  styles.css"
+                  fi
+                  {
+                    echo "subject-path<<EOF"
+                    echo "$files"
+                    echo "EOF"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Attest build provenance
+              uses: actions/attest-build-provenance@v2
+              with:
+                  subject-path: ${{ steps.attest-subjects.outputs.subject-path }}
 
             - name: Create release
               env:
