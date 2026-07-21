@@ -619,7 +619,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							(this.pendingState === null || receivedState !== this.pendingState)
 						) {
 							new Notice(
-								'Time blocks: state mismatch — possible CSRF attempt. Please authorize again.'
+								'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
 							);
 							this.pendingCodeVerifier = null;
 							this.pendingState = null;
