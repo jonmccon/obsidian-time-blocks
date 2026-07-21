@@ -250,7 +250,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 
 		// ── Tag colors (dynamic) ─────────────────────────────────────────────
 		const tagColors = settings.tagColors;
-		const tagColorItems: SettingGroupItem[] = Object.keys(tagColors).map((tag) => ({
+		const tagColorItems: SettingGroupItem[] = Object.keys(tagColors).sort().map((tag) => ({
 			name: tag,
 			render: (setting: Setting) => {
 				setting
@@ -690,7 +690,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 	}
 
 	override setControlValue(key: string, value: unknown): Promise<void> {
-		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+		(this.plugin.settings as Record<keyof TimeBlockSettings, unknown>)[key as keyof TimeBlockSettings] = value;
 		return this.plugin.saveSettings().then(() => {
 			this.refreshDomState();
 		});
