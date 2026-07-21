@@ -23,7 +23,13 @@ export class Plugin {
 export class PluginSettingTab {
 	app: App;
 	containerEl = { empty(): void { /* stub */ } };
+	settingItems: unknown[] = [];
 	constructor(app: App, _plugin: unknown) { this.app = app; }
+	getSettingDefinitions(): unknown[] { return []; }
+	getControlValue(_key: string): unknown { return undefined; }
+	setControlValue(_key: string, _value: unknown): void { /* stub */ }
+	update(): void { /* stub */ }
+	refreshDomState(): void { /* stub */ }
 }
 
 export class Setting {
