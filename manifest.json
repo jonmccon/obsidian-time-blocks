@@ -2,9 +2,9 @@
 	"id": "time-blocks",
 	"name": "Time Blocks",
 	"version": "1.0.1",
-	"minAppVersion": "0.15.0",
+	"minAppVersion": "1.4.0",
 	"description": "Weekly time-blocking canvas with Tasks-plugin backlog, drag-and-drop scheduling, and Google Calendar integration.",
 	"author": "jonmccon",
-	"authorUrl": "https://github.com/jonmccon/Obsidian-Time-Blocks",
+	"authorUrl": "https://github.com/jonmccon",
 	"isDesktopOnly": false
 }
