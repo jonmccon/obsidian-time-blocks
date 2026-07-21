@@ -262,7 +262,7 @@ export class TimeBlockView extends ItemView {
 			type: 'text',
 			cls: 'tb-search-input',
 			placeholder: 'Filter tasks… (use #tag for tags)',
-		} as Parameters<typeof searchRow.createEl>[1]);
+		});
 		this.searchInput.addEventListener('input', () => this.renderBacklogList());
 
 		// Quick-filter bar
@@ -379,7 +379,7 @@ export class TimeBlockView extends ItemView {
 			const completedCb = completedLabel.createEl('input', {
 				attr: { type: 'checkbox' },
 			});
-			if (!(completedCb instanceof HTMLInputElement)) return;
+			if (!completedCb.instanceOf(HTMLInputElement)) return;
 			completedCb.checked = showCompletedTasks;
 			completedLabel.createSpan({ text: 'Show completed' });
 			completedCb.addEventListener('change', () => {
@@ -399,7 +399,7 @@ export class TimeBlockView extends ItemView {
 					'aria-label': 'Custom task query',
 				},
 			});
-			if (!(queryArea instanceof HTMLTextAreaElement)) return;
+			if (!queryArea.instanceOf(HTMLTextAreaElement)) return;
 			queryArea.value = this.plugin.settings.customTaskQuery;
 			queryArea.addEventListener('change', () => {
 				void (async () => {
@@ -1169,12 +1169,6 @@ function formatBlockTimeLabel(block: ScheduledBlock): string {
 function isTaskOverdue(task: TaskItem, today: Date): boolean {
 	if (task.completed || !task.scheduledDate) return false;
 	return task.scheduledDate < today;
-}
-
-/** Returns `undefined` when the filter string is empty/whitespace. */
-function tagFilter(raw: string): string | undefined {
-	const trimmed = raw.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /**
