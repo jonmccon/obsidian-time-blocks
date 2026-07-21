@@ -45,6 +45,15 @@ export class TimeBlockView extends ItemView {
 	private gridEl!: HTMLElement;
 	private backlogListEl!: HTMLElement;
 	private searchInput!: HTMLInputElement;
+	private filterControlsEl!: HTMLElement;
+	private tagBarEl!: HTMLElement;
+
+	/** Tags currently selected in the tag bar (multi-select). */
+	private activeTagFilters = new Set<string>();
+
+	// Quick-filter bar state (persists across re-renders)
+	private uiFilterStatus: 'all' | 'open' = 'open';
+	private uiFilterSort: 'default' | 'priority' | 'due' | 'name' = 'default';
 
 	// Drag state
 	private draggingTaskId: string | null = null;
@@ -87,6 +96,7 @@ export class TimeBlockView extends ItemView {
 	/** Fetches tasks from the vault and GCal events, then re-renders both panels. */
 	async refresh(): Promise<void> {
 		await Promise.all([this.loadTasks(), this.loadGCalEvents()]);
+		this.renderTagBar();
 		this.renderBacklogList();
 		this.renderBlocks();
 	}
@@ -100,7 +110,7 @@ export class TimeBlockView extends ItemView {
 	}
 
 	private async loadTasks(): Promise<void> {
-		const { backlogMode, showCompletedTasks, taskTagFilter, customTaskQuery } =
+		const { backlogMode, showCompletedTasks, customTaskQuery } =
 			this.plugin.settings;
 
 		let all: TaskItem[];
@@ -113,13 +123,11 @@ export class TimeBlockView extends ItemView {
 			const parsed = parseQuery(customTaskQuery);
 			all = applyQuery(raw, parsed);
 		} else {
-			// All-tasks mode (default): use tag filter + completed toggle
+			// All-tasks mode (default): use completed toggle; tag filtering is handled
+			// by the interactive tag chips in the sidebar.
 			all = await queryTasks(
 				this.app,
-				{
-					showCompleted: showCompletedTasks,
-					tagFilter: tagFilter(taskTagFilter),
-				},
+				{ showCompleted: showCompletedTasks },
 				raw
 			);
 		}
@@ -235,10 +243,7 @@ export class TimeBlockView extends ItemView {
 	private buildSidebar(): void {
 		// Header
 		const header = this.sidebarEl.createDiv('tb-sidebar-header');
-		const modeLabel = this.plugin.settings.backlogMode === 'custom'
-			? 'Backlog (query)'
-			: 'Backlog (all)';
-		header.createEl('span', { text: modeLabel, cls: 'tb-sidebar-title' });
+		header.createEl('span', { text: 'Backlog', cls: 'tb-sidebar-title' });
 
 		const refreshBtn = header.createEl('button', {
 			cls: 'tb-icon-btn',
@@ -247,46 +252,286 @@ export class TimeBlockView extends ItemView {
 		refreshBtn.textContent = '↻';
 		refreshBtn.addEventListener('click', () => { void this.refresh(); });
 
+		// Filter controls (mode toggle + completed checkbox / custom query)
+		this.filterControlsEl = this.sidebarEl.createDiv('tb-filter-controls');
+		this.renderFilterControls();
+
 		// Search/filter
 		const searchRow = this.sidebarEl.createDiv('tb-search-row');
 		this.searchInput = searchRow.createEl('input', {
 			type: 'text',
 			cls: 'tb-search-input',
-			placeholder: 'Filter tasks…',
-		} as Parameters<typeof searchRow.createEl>[1]);
+			placeholder: 'Filter tasks… (use #tag for tags)',
+		});
 		this.searchInput.addEventListener('input', () => this.renderBacklogList());
+
+		// Quick-filter bar
+		this.buildFilterBar();
+
+		// Tag bar (multi-select chips, "all" mode only)
+		this.tagBarEl = this.sidebarEl.createDiv('tb-tag-bar');
 
 		// Scrollable task list
 		this.backlogListEl = this.sidebarEl.createDiv('tb-backlog-list');
+	}
+
+	/** Builds the status-pill + sort-select filter bar. */
+	private buildFilterBar(): void {
+		const bar = this.sidebarEl.createDiv('tb-filter-bar');
+
+		// ── Status pills ──────────────────────────────────────────────────────
+		const statusGroup = bar.createDiv('tb-filter-pill-group');
+
+		const statusOptions: Array<{ value: 'all' | 'open'; label: string }> = [
+			{ value: 'open', label: 'Open' },
+			{ value: 'all', label: 'All' },
+		];
+
+		const pills: HTMLElement[] = [];
+
+		for (const opt of statusOptions) {
+			const pill = statusGroup.createEl('button', {
+				text: opt.label,
+				cls: 'tb-filter-pill',
+				attr: { type: 'button', 'aria-label': `Show ${opt.label} tasks`, 'data-value': opt.value },
+			});
+			if (this.uiFilterStatus === opt.value) pill.addClass('tb-filter-pill--active');
+			pills.push(pill);
+
+			pill.addEventListener('click', () => {
+				this.uiFilterStatus = opt.value;
+				// Update active state using stored references (avoids querySelectorAll typing issues)
+				for (const p of pills) {
+					p.toggleClass('tb-filter-pill--active', p.getAttribute('data-value') === this.uiFilterStatus);
+				}
+				this.renderBacklogList();
+			});
+		}
+
+		// ── Sort select ───────────────────────────────────────────────────────
+		const sortSelect = bar.createEl('select', { cls: 'tb-filter-sort' });
+		sortSelect.setAttribute('aria-label', 'Sort tasks');
+
+		const sortOptions: Array<{ value: 'default' | 'priority' | 'due' | 'name'; label: string }> = [
+			{ value: 'default', label: 'Sort: default' },
+			{ value: 'priority', label: 'Sort: priority' },
+			{ value: 'due', label: 'Sort: due date' },
+			{ value: 'name', label: 'Sort: name' },
+		];
+
+		for (const opt of sortOptions) {
+			const option = sortSelect.createEl('option', { text: opt.label, value: opt.value });
+			if (this.uiFilterSort === opt.value) option.selected = true;
+		}
+
+		sortSelect.addEventListener('change', () => {
+			this.uiFilterSort = sortSelect.value as typeof this.uiFilterSort;
+			this.renderBacklogList();
+		});
+	}
+
+	/** Rebuilds the filter controls section (mode pills + completed / query area). */
+	private renderFilterControls(): void {
+		this.filterControlsEl.empty();
+
+		const { backlogMode, showCompletedTasks } = this.plugin.settings;
+
+		// Mode pill row
+		const modeRow = this.filterControlsEl.createDiv('tb-filter-mode-row');
+
+		const allBtn = modeRow.createEl('button', {
+			text: 'All',
+			cls: 'tb-mode-pill' + (backlogMode === 'all' ? ' tb-mode-pill--active' : ''),
+			attr: { type: 'button', 'aria-pressed': String(backlogMode === 'all') },
+		});
+		allBtn.addEventListener('click', () => {
+			void (async () => {
+				if (this.plugin.settings.backlogMode === 'all') return;
+				this.plugin.settings.backlogMode = 'all';
+				this.activeTagFilters.clear();
+				await this.plugin.saveSettings();
+				this.renderFilterControls();
+				await this.refresh();
+			})();
+		});
+
+		const customBtn = modeRow.createEl('button', {
+			text: 'Custom',
+			cls: 'tb-mode-pill' + (backlogMode === 'custom' ? ' tb-mode-pill--active' : ''),
+			attr: { type: 'button', 'aria-pressed': String(backlogMode === 'custom') },
+		});
+		customBtn.addEventListener('click', () => {
+			void (async () => {
+				if (this.plugin.settings.backlogMode === 'custom') return;
+				this.plugin.settings.backlogMode = 'custom';
+				this.activeTagFilters.clear();
+				await this.plugin.saveSettings();
+				this.renderFilterControls();
+				await this.refresh();
+			})();
+		});
+
+		if (backlogMode === 'all') {
+			// "Show completed" checkbox
+			const completedLabel = this.filterControlsEl.createEl('label', {
+				cls: 'tb-filter-completed',
+			});
+			const completedCb = completedLabel.createEl('input', {
+				attr: { type: 'checkbox' },
+			});
+			if (!completedCb.instanceOf(HTMLInputElement)) return;
+			completedCb.checked = showCompletedTasks;
+			completedLabel.createSpan({ text: 'Show completed' });
+			completedCb.addEventListener('change', () => {
+				void (async () => {
+					this.plugin.settings.showCompletedTasks = completedCb.checked;
+					await this.plugin.saveSettings();
+					await this.refresh();
+				})();
+			});
+		} else {
+			// Compact custom query textarea
+			const queryArea = this.filterControlsEl.createEl('textarea', {
+				cls: 'tb-sidebar-query',
+				attr: {
+					rows: '4',
+					placeholder: 'Not done\ntag includes #work\nlimit to 20 tasks',
+					'aria-label': 'Custom task query',
+				},
+			});
+			if (!queryArea.instanceOf(HTMLTextAreaElement)) return;
+			queryArea.value = this.plugin.settings.customTaskQuery;
+			queryArea.addEventListener('change', () => {
+				void (async () => {
+					this.plugin.settings.customTaskQuery = queryArea.value;
+					await this.plugin.saveSettings();
+					await this.refresh();
+				})();
+			});
+		}
+	}
+
+	/** Rebuilds the tag chip bar from the current backlog task set. */
+	private renderTagBar(): void {
+		if (!this.tagBarEl) return;
+		this.tagBarEl.empty();
+
+		if (this.plugin.settings.backlogMode !== 'all') {
+			this.tagBarEl.addClass('is-hidden');
+			return;
+		}
+
+		// Collect unique tags across all loaded backlog tasks
+		const allTags = new Set<string>();
+		for (const task of this.backlogTasks) {
+			for (const tag of task.tags) {
+				allTags.add(tag);
+			}
+		}
+
+		if (allTags.size === 0) {
+			this.tagBarEl.addClass('is-hidden');
+			this.activeTagFilters.clear();
+			return;
+		}
+
+		this.tagBarEl.removeClass('is-hidden');
+
+		// Remove any active filters for tags that no longer appear in the list
+		for (const active of [...this.activeTagFilters]) {
+			if (!allTags.has(active)) this.activeTagFilters.delete(active);
+		}
+
+		const colorMap = buildTagColorMap(this.plugin.settings.tagColors);
+
+		for (const tag of [...allTags].sort()) {
+			const isActive = this.activeTagFilters.has(tag);
+			const chip = this.tagBarEl.createEl('button', {
+				text: tag,
+				cls: 'tb-tag-chip' + (isActive ? ' tb-tag-chip--active' : ''),
+				attr: { type: 'button', 'aria-pressed': String(isActive) },
+			});
+
+			const color = colorMap.get(tag.toLowerCase());
+			if (color) {
+				chip.style.setProperty('--tb-tag-chip-color', color);
+				chip.addClass('tb-tag-chip--colored');
+			}
+
+			chip.addEventListener('click', () => {
+				if (this.activeTagFilters.has(tag)) {
+					this.activeTagFilters.delete(tag);
+				} else {
+					this.activeTagFilters.add(tag);
+				}
+				this.renderTagBar();
+				this.renderBacklogList();
+			});
+		}
 	}
 
 	private renderBacklogList(): void {
 		this.backlogListEl.empty();
 
 		const query = this.searchInput?.value?.toLowerCase() ?? '';
-		const visible = this.backlogTasks.filter((t) =>
+
+		// Apply text search
+		let visible = this.backlogTasks.filter((t) =>
 			t.title.toLowerCase().includes(query)
 		);
 
+		// Apply multi-select tag filter (show tasks containing ANY of the active tags)
+		if (this.activeTagFilters.size > 0) {
+			visible = visible.filter((t) =>
+				t.tags.some((tag) => this.activeTagFilters.has(tag))
+			);
+		}
+
+		// Apply status filter
+		if (this.uiFilterStatus === 'open') {
+			visible = visible.filter((t) => !t.completed);
+		}
+
+		// Show a context-aware empty message: use the friendly vault message only
+		// when no filters are active and status is at its default ('open') state.
+		const hasActiveFilters = query.length > 0 || this.activeTagFilters.size > 0 || this.uiFilterStatus !== 'open';
+
 		if (visible.length === 0) {
 			this.backlogListEl.createEl('p', {
-				text:
-					query
-						? 'No matching tasks.'
-						: 'No incomplete tasks found in the vault.',
+				text: hasActiveFilters
+					? 'No matching tasks.'
+					: 'No incomplete tasks found in the vault.',
 				cls: 'tb-empty-msg',
 			});
 			return;
 		}
 
-		// Overdue tasks (past scheduled date) bubble to the top
+		// Apply sort
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
-		const sorted = [...visible].sort((a, b) => {
-			const aOver = isTaskOverdue(a, today) ? 0 : 1;
-			const bOver = isTaskOverdue(b, today) ? 0 : 1;
-			return aOver - bOver;
-		});
+		let sorted: TaskItem[];
+		switch (this.uiFilterSort) {
+			case 'priority':
+				sorted = [...visible].sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
+				break;
+			case 'due':
+				sorted = [...visible].sort((a, b) => {
+					const da = a.dueDate?.getTime() ?? Infinity;
+					const db = b.dueDate?.getTime() ?? Infinity;
+					return da - db;
+				});
+				break;
+			case 'name':
+				sorted = [...visible].sort((a, b) => a.title.localeCompare(b.title));
+				break;
+			default:
+				// Default: overdue tasks (past scheduled date) bubble to the top
+				sorted = [...visible].sort((a, b) => {
+					const aOver = isTaskOverdue(a, today) ? 0 : 1;
+					const bOver = isTaskOverdue(b, today) ? 0 : 1;
+					return aOver - bOver;
+				});
+		}
 
 		for (const task of sorted) {
 			this.buildTaskItem(task, today);
@@ -568,6 +813,7 @@ export class TimeBlockView extends ItemView {
 
 		await this.plugin.saveBlocks();
 		await this.loadTasks();
+		this.renderTagBar();
 		this.renderBacklogList();
 		this.renderBlocks();
 	}
@@ -813,6 +1059,7 @@ export class TimeBlockView extends ItemView {
 		this.plugin.blocks = this.plugin.blocks.filter((b) => b.id !== blockId);
 		await this.plugin.saveBlocks();
 		await this.loadTasks();
+		this.renderTagBar();
 		this.renderBacklogList();
 		this.renderBlocks();
 	}
@@ -875,6 +1122,7 @@ export class TimeBlockView extends ItemView {
 		}
 
 		await this.loadTasks();
+		this.renderTagBar();
 		this.renderBacklogList();
 		this.renderBlocks();
 	}
@@ -921,12 +1169,6 @@ function formatBlockTimeLabel(block: ScheduledBlock): string {
 function isTaskOverdue(task: TaskItem, today: Date): boolean {
 	if (task.completed || !task.scheduledDate) return false;
 	return task.scheduledDate < today;
-}
-
-/** Returns `undefined` when the filter string is empty/whitespace. */
-function tagFilter(raw: string): string | undefined {
-	const trimmed = raw.trim();
-	return trimmed.length > 0 ? trimmed : undefined;
 }
 
 /**

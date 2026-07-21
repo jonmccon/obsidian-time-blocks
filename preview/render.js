@@ -230,6 +230,11 @@ function rerenderMain() {
 	buildGrid(weekStart);
 }
 
+// ── Filter state (module-level so renderBacklogList can read it without args) ─
+
+let uiFilterStatus = 'open';  // 'open' | 'all'
+let uiFilterSort = 'default'; // 'default' | 'priority' | 'due' | 'name'
+
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 
 function buildSidebar(root) {
@@ -250,10 +255,63 @@ function buildSidebar(root) {
 	searchInputEl = document.createElement('input');
 	searchInputEl.type = 'text';
 	searchInputEl.className = 'tb-search-input';
-	searchInputEl.placeholder = 'Filter tasks…';
+	searchInputEl.placeholder = 'Filter tasks... or #tag';
 	searchInputEl.addEventListener('input', () => renderBacklogList());
 	searchRow.appendChild(searchInputEl);
 	sidebarEl.appendChild(searchRow);
+
+	// ── Filter bar (mirrors TimeBlockView.buildFilterBar) ────────────────────
+	const bar = div('tb-filter-bar');
+
+	// Status pills
+	const pillGroup = div('tb-filter-pill-group');
+	const statusOptions = [
+		{ value: 'open', label: 'Open' },
+		{ value: 'all', label: 'All' },
+	];
+	const pills = [];
+	for (const opt of statusOptions) {
+		const pill = el('button', 'tb-filter-pill', opt.label);
+		pill.type = 'button';
+		pill.setAttribute('aria-label', `Show ${opt.label} tasks`);
+		pill.setAttribute('data-value', opt.value);
+		if (uiFilterStatus === opt.value) pill.classList.add('tb-filter-pill--active');
+		pills.push(pill);
+		pill.addEventListener('click', () => {
+			uiFilterStatus = opt.value;
+			for (const p of pills) {
+				p.classList.toggle('tb-filter-pill--active', p.getAttribute('data-value') === uiFilterStatus);
+			}
+			renderBacklogList();
+		});
+		pillGroup.appendChild(pill);
+	}
+	bar.appendChild(pillGroup);
+
+	// Sort dropdown
+	const sortSelect = document.createElement('select');
+	sortSelect.className = 'tb-filter-sort';
+	sortSelect.setAttribute('aria-label', 'Sort tasks');
+	const sortOptions = [
+		{ value: 'default', label: 'Sort: default' },
+		{ value: 'priority', label: 'Sort: priority' },
+		{ value: 'due', label: 'Sort: due date' },
+		{ value: 'name', label: 'Sort: name' },
+	];
+	for (const opt of sortOptions) {
+		const option = document.createElement('option');
+		option.value = opt.value;
+		option.textContent = opt.label;
+		if (uiFilterSort === opt.value) option.selected = true;
+		sortSelect.appendChild(option);
+	}
+	sortSelect.addEventListener('change', () => {
+		uiFilterSort = sortSelect.value;
+		renderBacklogList();
+	});
+	bar.appendChild(sortSelect);
+
+	sidebarEl.appendChild(bar);
 
 	// Scrollable task list
 	backlogListEl = div('tb-backlog-list');
@@ -264,7 +322,7 @@ function buildSidebar(root) {
 
 /**
  * Re-renders only the backlog list inside the sidebar.
- * Hides tasks that already have a block in the current week.
+ * Applies status filter and sort, hides tasks already scheduled this week.
  */
 function renderBacklogList() {
 	backlogListEl.innerHTML = '';
@@ -279,8 +337,10 @@ function renderBacklogList() {
 			.map((b) => b.taskId)
 	);
 
-	const visible = store.tasks.filter((t) => {
+	// Status filter
+	let visible = store.tasks.filter((t) => {
 		if (scheduledThisWeek.has(t.id)) return false;
+		if (uiFilterStatus === 'open' && t.completed) return false;
 		if (!query) return true;
 		return (
 			t.title.toLowerCase().includes(query) ||
@@ -288,10 +348,47 @@ function renderBacklogList() {
 		);
 	});
 
+	// Sort
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
+
+	switch (uiFilterSort) {
+		case 'priority':
+			visible.sort((a, b) => (a.priority ?? 999) - (b.priority ?? 999));
+			break;
+		case 'due':
+			visible.sort((a, b) => {
+				if (!a.dueDate && !b.dueDate) return 0;
+				if (!a.dueDate) return 1;
+				if (!b.dueDate) return -1;
+				return new Date(a.dueDate + 'T00:00:00') - new Date(b.dueDate + 'T00:00:00');
+			});
+			break;
+		case 'name':
+			visible.sort((a, b) => a.title.localeCompare(b.title));
+			break;
+		default: { // 'default': overdue first, then by due date, then by priority
+			visible.sort((a, b) => {
+				const aDue = a.dueDate ? new Date(a.dueDate + 'T00:00:00') : null;
+				const bDue = b.dueDate ? new Date(b.dueDate + 'T00:00:00') : null;
+				const aOverdue = aDue && aDue < today;
+				const bOverdue = bDue && bDue < today;
+				if (aOverdue && !bOverdue) return -1;
+				if (!aOverdue && bOverdue) return 1;
+				if (aDue && bDue) return aDue - bDue;
+				if (aDue) return -1;
+				if (bDue) return 1;
+				return (a.priority ?? 999) - (b.priority ?? 999);
+			});
+		}
+	}
+
 	if (visible.length === 0) {
 		const msg = div(
 			'tb-empty-msg',
-			query ? 'No matching tasks.' : 'All tasks are scheduled this week.'
+			query || uiFilterStatus !== 'open'
+				? 'No tasks match the current filter.'
+				: 'All tasks are scheduled this week.'
 		);
 		backlogListEl.appendChild(msg);
 		return;
@@ -301,6 +398,7 @@ function renderBacklogList() {
 		buildTaskItem(task);
 	}
 }
+
 
 function buildTaskItem(task) {
 	const item = div('tb-task-item');
