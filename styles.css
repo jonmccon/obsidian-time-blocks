@@ -97,6 +97,70 @@ body.tb-no-user-select {
 	border-color: var(--interactive-accent);
 }
 
+/* ── Quick-filter bar ───────────────────────────────────────── */
+.tb-filter-bar {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px 5px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+	flex-wrap: nowrap;
+}
+
+.tb-filter-pill-group {
+	display: flex;
+	gap: 2px;
+	flex-shrink: 0;
+}
+
+.tb-filter-pill {
+	padding: 2px 7px;
+	border-radius: 10px;
+	border: 1px solid var(--background-modifier-border);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 11px;
+	cursor: pointer;
+	line-height: 1.5;
+	transition: background 0.12s, color 0.12s, border-color 0.12s;
+	white-space: nowrap;
+}
+
+.tb-filter-pill:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.tb-filter-pill--active {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+
+.tb-filter-pill--active:hover {
+	background: var(--interactive-accent-hover, var(--interactive-accent));
+	color: var(--text-on-accent);
+}
+
+.tb-filter-sort {
+	flex: 1;
+	min-width: 0;
+	font-size: 11px;
+	padding: 2px 4px;
+	border-radius: 4px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	cursor: pointer;
+	appearance: auto;
+}
+
+.tb-filter-sort:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+}
+
 .tb-backlog-list {
 	flex: 1;
 	overflow-y: auto;
