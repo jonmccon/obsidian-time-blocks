@@ -21,6 +21,10 @@ export interface TokenEndpointResponse {
 	refresh_token?: string;
 	scope: string;
 	token_type: string;
+	/** Set when the token endpoint returns an error (e.g. "invalid_grant"). */
+	error?: string;
+	/** Human-readable description that may accompany `error`. */
+	error_description?: string;
 }
 
 // ── Calendar API Resources ───────────────────────────────────────────────────

@@ -59,6 +59,6 @@ export class TFile {
 	path = '';
 }
 
-export function requestUrl(_opts: unknown): Promise<{ text: string }> {
-	return Promise.resolve({ text: '' });
+export function requestUrl(_opts: unknown): Promise<{ text: string; json: unknown; status: number; arrayBuffer: ArrayBuffer; headers: Record<string, string> }> {
+	return Promise.resolve({ text: '', json: {}, status: 200, arrayBuffer: new ArrayBuffer(0), headers: {} });
 }

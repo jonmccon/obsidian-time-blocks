@@ -14,7 +14,7 @@ A weekly time-blocking plugin for [Obsidian](https://obsidian.md). Drag tasks fr
 - **Customizable colors** — Choose background colors for task blocks and calendar event blocks.
 - **Search & filter** — Filter the backlog by text, tag, or completion status.
 - **Week navigation** — Move between weeks or jump back to the current week.
-- **Persistent schedule** — Scheduled blocks are saved to `data.json` and restored when the plugin reloads.
+- **Persistent schedule** — Scheduled blocks are saved to `data.json` and restored when the plugin reloads. If you use two-way sync, OAuth tokens are also stored in `data.json` — avoid committing this file to public repositories.
 
 ## How it works
 
@@ -113,6 +113,8 @@ The plugin does **not** ship with a built-in Google client ID. You create your o
 10. Click **Authorize**, complete the Google sign-in in your browser, and paste the returned code back into the settings.
 
 > **Note:** The plugin uses the PKCE (Proof Key for Code Exchange) flow, so no client secret is required. Your credentials and tokens are stored locally in the plugin's `data.json` file inside your vault — they are never sent to any third-party server.
+
+> ⚠️ **Token storage security:** `data.json` contains your live OAuth refresh token. **Do not commit your vault's `.obsidian/plugins/time-blocks/data.json` to a public repository**, share it, or store it in an unencrypted backup. Anyone who obtains this file can access your Google Calendar until you revoke the token. To revoke access, click **Sign out** in plugin settings or visit [Google Account permissions](https://myaccount.google.com/permissions).
 
 ### Conflict resolution
 

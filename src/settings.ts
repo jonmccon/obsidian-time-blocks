@@ -5,6 +5,7 @@ import {
 	CALENDAR_SCOPES,
 	generateCodeChallenge,
 	generateCodeVerifier,
+	generateState,
 	exchangeCodeForTokens,
 } from './gcal/auth';
 import { listCalendars } from './gcal/calendarApi';
@@ -136,6 +137,8 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 	plugin: TimeBlockPlugin;
 	private calendarConnectionStatus = new Map<string, CalendarConnectionStatus>();
 	private pendingCodeVerifier: string | null = null;
+	private pendingState: string | null = null;
+	private pendingAuthUrl: string | null = null;
 
 	constructor(app: App, plugin: TimeBlockPlugin) {
 		super(app, plugin);
@@ -530,7 +533,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 			.setName('Calendar sign-in')
 			.setDesc(
 				'Click "Authorize" to open the sign-in page in your browser. ' +
-				'After granting access, paste the authorization code below.'
+				'After granting access, paste the full redirect URL (or just the code) below.'
 			);
 
 		signInSetting.addButton((btn) =>
@@ -538,24 +541,40 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 				.setButtonText('Authorize')
 				.setCta()
 				.onClick(async () => {
+					// Re-entrant: reopen the same URL if a flow is already in progress
+					// rather than generating a new verifier and invalidating the old one.
+					if (this.pendingCodeVerifier && this.pendingAuthUrl) {
+						window.open(this.pendingAuthUrl);
+						return;
+					}
+
 					const verifier = generateCodeVerifier();
+					const state = generateState();
 					this.pendingCodeVerifier = verifier;
+					this.pendingState = state;
 					const challenge = await generateCodeChallenge(verifier);
 					const url = buildAuthUrl({
 						clientId: this.plugin.settings.oauthClientId,
 						codeChallenge: challenge,
 						scopes: CALENDAR_SCOPES,
+						state,
 					});
+					this.pendingAuthUrl = url;
 					window.open(url);
 				})
 		);
 
 		new Setting(containerEl)
 			.setName('Authorization code')
-			.setDesc('Paste the code you received here.')
+			.setDesc(
+				'Paste the full redirect URL from your browser address bar ' +
+				'(e.g. http://127.0.0.1?code=…&state=…) or just the code. ' +
+				'Pasting the full URL allows the plugin to verify the state ' +
+				'parameter and protect against cross-site request forgery (CSRF).'
+			)
 			.addText((text) =>
 				text
-					.setPlaceholder('Paste authorization code')
+					.setPlaceholder('http://127.0.0.1?code=… or just the code')
 					.onChange((value) => {
 						authCodeInput = value;
 					})
@@ -565,13 +584,46 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 					.setButtonText('Submit')
 					.setCta()
 					.onClick(async () => {
-						const code = authCodeInput.trim();
-						if (!code) {
+						const trimmed = authCodeInput.trim();
+						if (!trimmed) {
 							new Notice('Time blocks: please enter the authorization code.');
 							return;
 						}
 						if (!this.pendingCodeVerifier) {
 							new Notice('Time blocks: click authorize first.');
+							return;
+						}
+
+						// Extract code (and optionally state) from the pasted value.
+						// Accept either a full redirect URL or a bare authorization code.
+						let code = trimmed;
+						let receivedState: string | null = null;
+
+						try {
+							const parsedUrl = new URL(trimmed);
+							const codeParam = parsedUrl.searchParams.get('code');
+							if (codeParam) {
+								code = codeParam;
+								receivedState = parsedUrl.searchParams.get('state');
+							}
+						} catch {
+							// Not a URL — treat the whole string as the bare code.
+						}
+
+						// Validate state when the redirect URL supplies one.
+						// Reject if: a state was received but doesn't match what we generated,
+						// OR if a state was received but we have no expected state (shouldn't
+						// happen if the Authorize button was clicked, but guards edge cases).
+						if (
+							receivedState !== null &&
+							(this.pendingState === null || receivedState !== this.pendingState)
+						) {
+							new Notice(
+								'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
+							);
+							this.pendingCodeVerifier = null;
+							this.pendingState = null;
+							this.pendingAuthUrl = null;
 							return;
 						}
 
@@ -584,6 +636,8 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							this.plugin.settings.oauthTokens = tokens;
 							await this.plugin.saveSettings();
 							this.pendingCodeVerifier = null;
+							this.pendingState = null;
+							this.pendingAuthUrl = null;
 							new Notice('Time blocks: signed in to calendar.');
 							this.display();
 						} catch (err) {
