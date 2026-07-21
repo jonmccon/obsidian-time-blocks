@@ -29,6 +29,6 @@
 		"vitest": "^4.1.0"
 	},
 	"dependencies": {
-		"obsidian": "latest"
+		"obsidian": "^1.13.1"
 	}
 }
