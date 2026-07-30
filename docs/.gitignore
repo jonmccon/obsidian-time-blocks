@@ -1,0 +1,4 @@
+# Raw screen recordings (convert to GIF before committing)
+assets/demo/raw-*.mov
+assets/demo/raw-*.mp4
+assets/screenshots/raw-*.png
