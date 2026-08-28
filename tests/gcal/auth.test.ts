@@ -179,6 +179,7 @@ describe('exchangeCodeForTokens / token endpoint error handling', () => {
 		await expect(
 			exchangeCodeForTokens({
 				clientId: 'test-client-id',
+				clientSecret: 'text-client-secret',
 				code: 'bad-code',
 				codeVerifier: generateCodeVerifier(),
 			})
@@ -199,6 +200,7 @@ describe('exchangeCodeForTokens / token endpoint error handling', () => {
 		await expect(
 			exchangeCodeForTokens({
 				clientId: 'test-client-id',
+				clientSecret: 'text-client-secret',
 				code: 'bad-code',
 				codeVerifier: generateCodeVerifier(),
 			})

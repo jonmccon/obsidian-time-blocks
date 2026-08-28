@@ -116,6 +116,7 @@ export interface TokenExchangeParams {
 	code: string;
 	codeVerifier: string;
 	redirectUri?: string;
+	clientSecret: string;
 }
 
 /**
@@ -133,14 +134,20 @@ export async function exchangeCodeForTokens(
 		code_verifier: params.codeVerifier,
 		grant_type: 'authorization_code',
 		redirect_uri: redirectUri,
+		client_secret: params.clientSecret,
 	});
 
-	const resp = await requestUrl({
-		url: TOKEN_ENDPOINT,
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: body.toString(),
-	});
+	let resp;
+	try {
+		resp = await requestUrl({
+			url: TOKEN_ENDPOINT,
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: body.toString(),
+		});
+	} catch (err: unknown) {
+		handleTokenEndpointError(err);
+	}
 
 	const data = resp.json as TokenEndpointResponse;
 	return tokenResponseToOAuthTokens(data);
@@ -154,6 +161,7 @@ export async function exchangeCodeForTokens(
  */
 export async function refreshAccessToken(
 	clientId: string,
+	clientSecret: string,
 	refreshToken: string
 ): Promise<OAuthTokens> {
 	const body = new URLSearchParams({
@@ -162,12 +170,17 @@ export async function refreshAccessToken(
 		grant_type: 'refresh_token',
 	});
 
-	const resp = await requestUrl({
-		url: TOKEN_ENDPOINT,
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: body.toString(),
-	});
+	let resp;
+	try {
+		resp = await requestUrl({
+			url: TOKEN_ENDPOINT,
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: body.toString(),
+		});
+	} catch (err: unknown) {
+		handleTokenEndpointError(err);
+	}
 
 	const data = resp.json as TokenEndpointResponse;
 	const tokens = tokenResponseToOAuthTokens(data);
@@ -184,6 +197,17 @@ export function isTokenExpired(tokens: OAuthTokens): boolean {
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
+
+function handleTokenEndpointError(err: unknown): never {
+	const body = (err as Record<string, unknown>)?.json as TokenEndpointResponse | undefined;
+	if (body?.error) {
+		const detail = body.error_description
+			? `${body.error} - ${body.error_description}`
+			: body.error;
+		throw new Error(`OAuth token error: ${detail}`)
+	}
+	throw err;
+}
 
 function tokenResponseToOAuthTokens(resp: TokenEndpointResponse): OAuthTokens {
 	if (resp.error) {

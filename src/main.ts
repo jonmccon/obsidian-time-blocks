@@ -133,6 +133,7 @@ export default class TimeBlockPlugin extends Plugin {
 				await this.saveSettings();
 			},
 			clientId: this.settings.oauthClientId,
+			clientSecret: this.settings.oauthClientSecret,
 		};
 	}
 

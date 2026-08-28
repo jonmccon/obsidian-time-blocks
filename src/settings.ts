@@ -112,6 +112,8 @@ export interface TimeBlockSettings {
 
 	/** Calendars the user has explicitly allowed write access to (by calendar ID). */
 	writableCalendarIds: string[];
+
+	oauthClientSecret: string;
 }
 
 export const DEFAULT_SETTINGS: TimeBlockSettings = {
@@ -132,6 +134,7 @@ export const DEFAULT_SETTINGS: TimeBlockSettings = {
 	syncCalendarId: 'primary',
 	conflictStrategy: 'ask',
 	writableCalendarIds: [],
+	oauthClientSecret: '',
 };
 
 export class TimeBlockSettingTab extends PluginSettingTab {
@@ -430,6 +433,19 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						},
 						visible: () => settings.enableTwoWaySync,
 					},
+					{
+						name: 'Calendar API client secret',
+						desc:
+							'Your cloud console OAuth 2.0 client secret. ' +
+							'Found alongside your client ID in the Google Cloud Console.',
+						control: {
+							type: 'text',
+							key: 'oauthClientSecret',
+							placeholder: 'Your client secret',
+							defaultValue: DEFAULT_SETTINGS.oauthClientSecret,
+						},
+						visible: () => settings.enableTwoWaySync,
+					},
 					// OAuth sign-in UI (shown when sync enabled, no tokens, client ID present)
 					{
 						name: 'Calendar sign-in',
@@ -541,6 +557,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 											try {
 												const tokens = await exchangeCodeForTokens({
 													clientId: settings.oauthClientId,
+													clientSecret: settings.oauthClientSecret,
 													code,
 													codeVerifier: this.pendingCodeVerifier,
 												});
@@ -610,6 +627,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 														await this.plugin.saveSettings();
 													},
 													clientId: settings.oauthClientId,
+													clientSecret: settings.oauthClientSecret,
 												});
 												const writable = cals.filter(
 													(c) =>

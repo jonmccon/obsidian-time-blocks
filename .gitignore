@@ -23,3 +23,6 @@ data.json
 
 # Test coverage output
 coverage
+
+# Exclude agents skills and workflows
+.agents

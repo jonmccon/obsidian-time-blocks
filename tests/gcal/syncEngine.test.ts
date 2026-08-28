@@ -72,6 +72,7 @@ function makeDeps(overrides?: {
 			}),
 			saveTokens: vi.fn(),
 			clientId: 'test-client',
+			clientSecret: 'text-client-secret',
 		},
 		targetCalendarId: 'primary',
 		conflictStrategy: 'local-wins',
