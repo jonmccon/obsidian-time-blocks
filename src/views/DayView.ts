@@ -10,6 +10,11 @@ import TimeBlockPlugin from '../main';
 import { calendarFeedLabel, TimeBlockSettings } from '../settings';
 import { GCalEvent, ScheduledBlock, TaskItem } from '../types';
 import { parseICS } from '../utils/icsParser';
+import { listEvents } from '../gcal/calendarApi';
+import {
+	mapApiEventsToGCalEvents,
+	shouldFetchApiCalendars,
+} from '../gcal/eventMapper';
 import { applyQuery, parseQuery } from '../utils/queryFilter';
 import { queryTasks, scanAllTasks, setTaskCompletion } from '../utils/taskQuery';
 import {
@@ -119,43 +124,81 @@ export class DayView extends ItemView {
 	}
 
 	private async loadGCalEvents(): Promise<void> {
-		const feeds = this.plugin.settings.calendarFeeds;
+		const { calendarFeeds, oauthTokens, selectedCalendarIds } =
+			this.plugin.settings;
 		this.gcalEvents = [];
 
-		if (feeds.length === 0) return;
+		const results: GCalEvent[][] = [];
 
-		const results = await Promise.all(
-			feeds.map(async (feed, index) => {
-				const url = feed.url.trim();
-				if (!url) return [];
+		// ── ICS calendar feeds ────────────────────────────────────────────────
+		if (calendarFeeds.length > 0) {
+			const feedResults = await Promise.all(
+				calendarFeeds.map(async (feed, index) => {
+					const url = feed.url.trim();
+					if (!url) return [];
 
-				const label = calendarFeedLabel(index);
+					const label = calendarFeedLabel(index);
 
-				if (!url.startsWith('https://')) {
-					console.warn(
-						`[Time Blocks] ${label} URL rejected: only HTTPS URLs are allowed.`
-					);
-					new Notice(`Time blocks: ${label} URL must use HTTPS.`);
-					return [];
-				}
+					if (!url.startsWith('https://')) {
+						console.warn(
+							`[Time Blocks] ${label} URL rejected: only HTTPS URLs are allowed.`
+						);
+						new Notice(`Time blocks: ${label} URL must use HTTPS.`);
+						return [];
+					}
 
-				try {
-					const resp = await requestUrl({ url, method: 'GET' });
-					const parsed = parseICS(resp.text);
-					const feedKey = encodeURIComponent(feed.id);
-					return parsed.map((event) => ({
-						...event,
-						id: `${feedKey}::${encodeURIComponent(event.id)}`,
-					}));
-				} catch (err) {
-					console.error('[Time Blocks] GCal fetch failed:', err);
-					new Notice(
-						`Time blocks: could not fetch ${label}. Check the calendar URL in plugin settings.`
-					);
-					return [];
-				}
-			})
-		);
+					try {
+						const resp = await requestUrl({ url, method: 'GET' });
+						const parsed = parseICS(resp.text);
+						const feedKey = encodeURIComponent(feed.id);
+						return parsed.map((event) => ({
+							...event,
+							id: `${feedKey}::${encodeURIComponent(event.id)}`,
+						}));
+					} catch (err) {
+						console.error('[Time Blocks] GCal fetch failed:', err);
+						new Notice(
+							`Time blocks: could not fetch ${label}. Check the calendar URL in plugin settings.`
+						);
+						return [];
+					}
+				})
+			);
+			results.push(...feedResults);
+		}
+
+		// ── Google Calendar API (selected calendars overlay) ─────────────────
+		if (shouldFetchApiCalendars({ oauthTokens, selectedCalendarIds })) {
+			const dayStart = new Date(`${formatDate(this.selectedDay)}T00:00:00`);
+			const dayEnd = new Date(dayStart);
+			dayEnd.setDate(dayEnd.getDate() + 1);
+			const timeMin = dayStart.toISOString();
+			const timeMax = dayEnd.toISOString();
+
+			const apiResults = await Promise.all(
+				selectedCalendarIds.map(async (calendarId) => {
+					try {
+						const events = await listEvents(
+							this.plugin.buildApiCallbacks(),
+							calendarId,
+							timeMin,
+							timeMax
+						);
+						return mapApiEventsToGCalEvents(events, calendarId);
+					} catch (err) {
+						console.error(
+							`[Time Blocks] Google Calendar API fetch failed for ${calendarId}:`,
+							err
+						);
+						new Notice(
+							`Time blocks: could not fetch calendar ${calendarId}. Check your connection.`
+						);
+						return [];
+					}
+				})
+			);
+			results.push(...apiResults);
+		}
 
 		this.gcalEvents = results.flat();
 	}

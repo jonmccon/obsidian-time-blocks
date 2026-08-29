@@ -10,7 +10,7 @@ import {
 	exchangeCodeForTokens,
 } from './gcal/auth';
 import { listCalendars } from './gcal/calendarApi';
-import type { ConflictStrategy, OAuthTokens } from './gcal/types';
+import type { CalendarListEntry, ConflictStrategy, OAuthTokens } from './gcal/types';
 import { parseICS } from './utils/icsParser';
 
 /** Controls which tasks appear in the sidebar backlog. */
@@ -114,6 +114,12 @@ export interface TimeBlockSettings {
 	writableCalendarIds: string[];
 
 	oauthClientSecret: string;
+
+	/**
+	 * Google Calendar IDs to display as read-only overlays on the grid.
+	 * Populated via the "Overlay calendars" picker in the Two-way sync group.
+	 */
+	selectedCalendarIds: string[];
 }
 
 export const DEFAULT_SETTINGS: TimeBlockSettings = {
@@ -135,6 +141,7 @@ export const DEFAULT_SETTINGS: TimeBlockSettings = {
 	conflictStrategy: 'ask',
 	writableCalendarIds: [],
 	oauthClientSecret: '',
+	selectedCalendarIds: [],
 };
 
 export class TimeBlockSettingTab extends PluginSettingTab {
@@ -598,6 +605,37 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						},
 					},
 					{
+						name: 'Overlay calendars',
+						desc:
+							'Select which Google Calendars to display as read-only overlays on the grid. ' +
+							'This is an alternative to pasting ICS feeds.',
+						visible: () => settings.oauthTokens !== null,
+						render: (setting: Setting) => {
+							setting.addButton((btn) =>
+								btn
+									.setButtonText('Fetch calendars')
+									.setCta()
+									.onClick(async () => {
+										try {
+											const cals = await listCalendars(
+												this.plugin.buildApiCallbacks()
+											);
+											renderCalendarChecklist(
+												setting.controlEl,
+												cals,
+												settings.selectedCalendarIds,
+												this.plugin
+											);
+										} catch (err) {
+											new Notice(
+												`Time blocks: failed to fetch calendars: ${String(err)}`
+											);
+										}
+									})
+							);
+						},
+					},
+					{
 						name: 'Target calendar',
 						desc:
 							'Calendar to push scheduled blocks into. ' +
@@ -777,3 +815,144 @@ function setCalendarStatusEl(
 	);
 	statusEl.classList.add(`tb-calendar-status--${status}`);
 }
+
+/**
+ * Renders a checklist of calendars (fetched via the Google Calendar API) into
+ * the given container. Each row is a checkbox; toggling it adds/removes the
+ * calendar ID from `selectedCalendarIds` and persists the settings.
+ */
+function renderCalendarChecklist(
+	container: HTMLElement,
+	calendars: CalendarListEntry[],
+	selectedCalendarIds: string[],
+	plugin: TimeBlockPlugin
+): void {
+	container.querySelectorAll('.tb-overlay-cal-list').forEach((el) => el.remove());
+
+	const listEl = container.createDiv({ cls: 'tb-overlay-cal-list' });
+
+	if (calendars.length === 0) {
+		listEl.createEl('span', {
+			text: 'No calendars found.',
+			cls: 'tb-overlay-cal-empty',
+		});
+		return;
+	}
+
+	// ── Header row (count + select/deselect all) ─────────────
+	const headerRow = listEl.createDiv({ cls: 'tb-overlay-cal-header' });
+	headerRow.createEl('span', {
+		cls: 'tb-overlay-cal-count',
+		text: `${calendars.length} calendars`,
+	});
+
+	const toggleAllBtn = headerRow.createEl('button', {
+		cls: 'tb-overlay-cal-toggle-all',
+		text: calendars.every((c) => selectedCalendarIds.includes(c.id))
+			? 'Deselect all'
+			: 'Select all',
+	});
+
+	// ── Filter input (only for long lists) ───────────────────
+	if (calendars.length > 6) {
+		const filterInput = listEl.createEl('input', {
+			cls: 'tb-overlay-cal-filter',
+			attr: { type: 'text', placeholder: 'Filter calendars\u2026' },
+		});
+		filterInput.addEventListener('input', () => {
+			const query = filterInput.value.toLowerCase();
+			listEl
+				.querySelectorAll<HTMLElement>('.tb-overlay-cal-row')
+				.forEach((rowEl) => {
+					const name =
+						rowEl
+							.querySelector('.tb-overlay-cal-name')
+							?.textContent?.toLowerCase() ?? '';
+					rowEl.style.display = name.includes(query) ? '' : 'none';
+				});
+		});
+	}
+
+	// ── Calendar rows ────────────────────────────────────────
+	const checkboxes: HTMLInputElement[] = [];
+
+	for (const cal of calendars) {
+		const row = listEl.createDiv({ cls: 'tb-overlay-cal-row' });
+
+		const cb = row.createEl('input', {
+			cls: 'tb-overlay-cal-checkbox',
+			attr: { type: 'checkbox' },
+		});
+		cb.checked = selectedCalendarIds.includes(cal.id);
+		checkboxes.push(cb);
+
+		cb.addEventListener('change', () => {
+			void (async () => {
+				const idx = selectedCalendarIds.indexOf(cal.id);
+				if (cb.checked && idx === -1) {
+					selectedCalendarIds.push(cal.id);
+				}
+				if (!cb.checked && idx !== -1) {
+					selectedCalendarIds.splice(idx, 1);
+				}
+				await plugin.saveSettings();
+				toggleAllBtn.textContent = calendars.every((c) =>
+					selectedCalendarIds.includes(c.id)
+				)
+					? 'Deselect all'
+					: 'Select all';
+			})();
+		});
+
+		// Color dot (if calendar has a background color)
+		if (cal.backgroundColor) {
+			row.createEl('span', {
+				cls: 'tb-overlay-cal-dot',
+				attr: { style: `background-color: ${cal.backgroundColor}` },
+			});
+		}
+
+		// Label (name + optional role badge)
+		const label = row.createDiv({ cls: 'tb-overlay-cal-label' });
+		label.createEl('span', { text: cal.summary, cls: 'tb-overlay-cal-name' });
+
+		if (cal.accessRole === 'owner') {
+			label.createEl('span', {
+				text: 'Owner',
+				cls: 'tb-overlay-cal-badge tb-overlay-cal-badge--owner',
+			});
+		} else if (cal.accessRole === 'writer') {
+			label.createEl('span', {
+				text: 'Writer',
+				cls: 'tb-overlay-cal-badge tb-overlay-cal-badge--writer',
+			});
+		}
+
+		// Clicking the row toggles the checkbox
+		row.addEventListener('click', (e) => {
+			if (e.target === cb) return; // already handled by the checkbox itself
+			cb.checked = !cb.checked;
+			cb.dispatchEvent(new Event('change'));
+		});
+	}
+
+	// ── Toggle all handler ───────────────────────────────────
+	toggleAllBtn.addEventListener('click', () => {
+		void (async () => {
+			const allSelected = calendars.every((c) =>
+				selectedCalendarIds.includes(c.id)
+			);
+			selectedCalendarIds.length = 0;
+			if (!allSelected) {
+				calendars.forEach((c) => selectedCalendarIds.push(c.id));
+			}
+			await plugin.saveSettings();
+			checkboxes.forEach((cb, i) => {
+				const cal = calendars[i];
+				if (cal) cb.checked = selectedCalendarIds.includes(cal.id);
+			});
+			toggleAllBtn.textContent = allSelected ? 'Select all' : 'Deselect all';
+		})();
+	});
+}
+

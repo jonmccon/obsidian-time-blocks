@@ -309,6 +309,145 @@ body.tb-no-user-select {
 	color: var(--text-error);
 }
 
+/* ── Settings: overlay calendar checklist ──────────────────── */
+.tb-overlay-cal-list {
+	margin-top: 8px;
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	max-height: 360px;
+	overflow-y: auto;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	background: var(--background-primary);
+}
+
+.tb-overlay-cal-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+.tb-overlay-cal-count {
+	font-size: 11px;
+	color: var(--text-muted);
+	font-weight: 500;
+}
+
+.tb-overlay-cal-empty {
+	padding: 12px;
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.tb-overlay-cal-toggle-all {
+	font-size: 11px;
+	color: var(--text-accent);
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 2px 6px;
+	border-radius: 4px;
+	transition: background 0.12s;
+}
+
+.tb-overlay-cal-toggle-all:hover {
+	background: var(--background-modifier-hover);
+}
+
+.tb-overlay-cal-filter {
+	width: 100%;
+	padding: 6px 10px;
+	border: none;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: 12px;
+	box-sizing: border-box;
+	position: sticky;
+	top: 0;
+	z-index: 1;
+}
+
+.tb-overlay-cal-filter:focus {
+	outline: none;
+	background: var(--background-primary-alt, var(--background-primary));
+}
+
+.tb-overlay-cal-filter::placeholder {
+	color: var(--text-faint);
+}
+
+.tb-overlay-cal-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	transition: background 0.1s;
+	cursor: pointer;
+}
+
+.tb-overlay-cal-row:last-child {
+	border-bottom: none;
+}
+
+.tb-overlay-cal-row:hover {
+	background: var(--background-modifier-hover);
+}
+
+.tb-overlay-cal-checkbox {
+	margin: 0;
+	flex-shrink: 0;
+}
+
+.tb-overlay-cal-dot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+
+.tb-overlay-cal-label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex: 1;
+	min-width: 0;
+}
+
+.tb-overlay-cal-name {
+	font-size: 13px;
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.tb-overlay-cal-badge {
+	font-size: 10px;
+	padding: 1px 5px;
+	border-radius: 4px;
+	font-weight: 500;
+	flex-shrink: 0;
+}
+
+.tb-overlay-cal-badge--owner {
+	background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+	color: var(--interactive-accent);
+}
+
+.tb-overlay-cal-badge--writer {
+	background: color-mix(in srgb, var(--color-green, #27ae60) 15%, transparent);
+	color: var(--color-green, #27ae60);
+}
+
 /* ── Main area ─────────────────────────────────────────────── */
 .tb-main {
 	flex: 1;
