@@ -51,5 +51,7 @@ Initial release. Scaffolded the full plugin with a weekly time-block canvas, Tas
 
 ### In Progress
 
+- **Day panel backlog list** — The single-day sidebar view (`DayView`) now renders its own collapsible backlog list (search filter, priority icons, due dates, tag-color bar), matching the weekly view. Previously the unscheduled-task list was computed internally but never displayed, so nothing was actually draggable within the day panel.
+- **"Add to day panel" from any note** — Right-click any task line (`- [ ] ...`) in any open note to send it directly to the day panel's currently selected day via a new editor-context-menu command. The task lands in the first free hour slot — no drag required, and it works across notes/panes without needing the plugin's own backlog list open.
 - **Quick-filter bar** — Status pills (Open / Done / All) and a sort dropdown (Default / Priority / Due date / Name) added to the backlog sidebar above the task list ([#19](https://github.com/jonmccon/obsidian-time-blocks/pull/19))
 - **OAuth security hardening** — CSRF state parameter validation, token endpoint error handling, re-entrant authorization guard, and token storage documentation ([#25](https://github.com/jonmccon/obsidian-time-blocks/pull/25))

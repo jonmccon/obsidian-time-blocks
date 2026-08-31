@@ -49,8 +49,15 @@ Automatically scans your entire vault for tasks written in Obsidian Tasks emoji 
 ### Day view
 
 ![Day view open in Obsidian right sidebar](docs/assets/screenshots/03-day-view.png)
+<!-- NOTE: this screenshot needs to be re-captured from the real Obsidian app.
+     The Day view (single-day right-sidebar layout) is Obsidian-only UI and is
+     not implemented in the plain-JS preview app used to regenerate the other
+     screenshots on this page — see docs/MAKE_ASSETS.md for capture steps. -->
 
-A single-day sidebar view for focused planning. Navigate between days with arrow buttons. Supports the same drag-and-drop, resize, completion toggle, and delete actions as the weekly grid.
+
+A single-day sidebar view for focused planning. Navigate between days with arrow buttons. Supports the same drag-and-drop, resize, completion toggle, and delete actions as the weekly grid — including its own collapsible backlog list (search, priority icons, due dates, tag-color bar) so tasks are draggable directly within the day panel, not just the weekly view.
+
+**Add a task from any open note** — right-click a task line (`- [ ] ...`) anywhere in your vault and choose *Time blocks: add to day panel*. It's sent straight to the day panel's selected day at the next free hour slot, without opening the backlog or dragging anything.
 
 ### Google Calendar integration
 
@@ -64,6 +71,11 @@ Two layers of calendar integration:
 ### Custom query backlog
 
 ![Custom query settings panel](docs/assets/screenshots/04-custom-query.png)
+<!-- NOTE: this screenshot needs to be re-captured from the real Obsidian app.
+     The plugin Settings tab (where Custom Query lives) is rendered by
+     Obsidian's PluginSettingTab API and is not reproduced in the plain-JS
+     preview app — see docs/MAKE_ASSETS.md for capture steps. -->
+
 
 Switch from "show all" to a custom multi-line query using the [Obsidian Tasks query syntax](https://obsidian-tasks-group.github.io/obsidian-tasks/queries/). 16 rule types: status, due/path/tag/priority filters, sort, and limit.
 
@@ -245,7 +257,7 @@ npm install          # install dependencies
 npm run build        # type-check + bundle
 npm run dev          # watch mode
 npm run lint         # ESLint
-npm test             # Vitest unit tests (173+ tests, no Obsidian install needed)
+npm test             # Vitest unit tests (185+ tests, no Obsidian install needed)
 npm run test:watch   # test watch mode
 ```
 

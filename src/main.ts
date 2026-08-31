@@ -10,6 +10,7 @@ import type { OAuthTokens } from './gcal/types';
 import type { CalendarApiCallbacks } from './gcal/calendarApi';
 import { runSync } from './gcal/syncEngine';
 import { ScheduledBlock } from './types';
+import { parseTaskLine } from './utils/taskQuery';
 import { TIME_BLOCK_VIEW_TYPE, TimeBlockView } from './views/TimeBlockView';
 import { DAY_VIEW_TYPE, DayView } from './views/DayView';
 
@@ -89,6 +90,26 @@ export default class TimeBlockPlugin extends Plugin {
 
 		// Settings tab
 		this.addSettingTab(new TimeBlockSettingTab(this.app, this));
+
+		// Right-click on a task line in any note → add it to the day panel
+		this.registerEvent(
+			this.app.workspace.on('editor-menu', (menu, editor, view) => {
+				if (!view.file) return;
+				const lineNumber = editor.getCursor().line;
+				const lineText = editor.getLine(lineNumber);
+				const task = parseTaskLine(lineText, view.file.path, lineNumber + 1);
+				if (!task) return;
+
+				menu.addItem((item) => {
+					item
+						.setTitle('Time blocks: add to day panel')
+						.setIcon('calendar-clock')
+						.onClick(() => {
+							void this.addTaskToDayPanel(task.id);
+						});
+				});
+			})
+		);
 	}
 
 	onunload(): void {
@@ -117,6 +138,25 @@ export default class TimeBlockPlugin extends Plugin {
 			await leaf.setViewState({ type: DAY_VIEW_TYPE, active: true });
 		}
 		void workspace.revealLeaf(leaf);
+	}
+
+	/**
+	 * Ensures the day panel is open, then schedules the given task onto its
+	 * currently selected day. Used by the "Add to day panel" context-menu
+	 * command so a task in ANY open note can be sent to the day panel
+	 * without dragging.
+	 */
+	async addTaskToDayPanel(taskId: string): Promise<void> {
+		await this.activateDayView();
+
+		const leaf = this.app.workspace.getLeavesOfType(DAY_VIEW_TYPE)[0];
+		const view = leaf?.view;
+		if (!(view instanceof DayView)) {
+			new Notice('Time blocks: could not open the day panel.');
+			return;
+		}
+
+		await view.scheduleExternalTask(taskId);
 	}
 
 	// ── Two-way sync ──────────────────────────────────────────────────────────

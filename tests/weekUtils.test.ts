@@ -6,6 +6,7 @@ import {
 	isToday,
 	addWeeks,
 	formatHour,
+	findNextAvailableHour,
 } from '../src/utils/weekUtils';
 
 describe('getWeekStart', () => {
@@ -163,5 +164,35 @@ describe('formatHour', () => {
 		expect(formatHour(13)).toBe('1 PM');
 		expect(formatHour(17)).toBe('5 PM');
 		expect(formatHour(23)).toBe('11 PM');
+	});
+});
+
+describe('findNextAvailableHour', () => {
+	it('returns the starting hour when nothing is taken', () => {
+		expect(findNextAvailableHour(new Set(), 9, 18)).toBe(9);
+	});
+
+	it('skips a single taken hour', () => {
+		expect(findNextAvailableHour(new Set([9]), 9, 18)).toBe(10);
+	});
+
+	it('skips multiple consecutive taken hours', () => {
+		expect(findNextAvailableHour(new Set([9, 10, 11]), 9, 18)).toBe(12);
+	});
+
+	it('ignores taken hours outside the search range', () => {
+		// Hour 8 is taken but the search starts at 9, so it's irrelevant.
+		expect(findNextAvailableHour(new Set([8]), 9, 18)).toBe(9);
+	});
+
+	it('falls back to the starting hour when the whole range is taken', () => {
+		const taken = new Set([9, 10, 11, 12, 13, 14, 15, 16, 17]);
+		expect(findNextAvailableHour(taken, 9, 18)).toBe(9);
+	});
+
+	it('does not mutate the takenHours set', () => {
+		const taken = new Set([9]);
+		findNextAvailableHour(taken, 9, 18);
+		expect(taken).toEqual(new Set([9]));
 	});
 });
