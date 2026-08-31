@@ -55,7 +55,9 @@ Automatically scans your entire vault for tasks written in Obsidian Tasks emoji 
      screenshots on this page — see docs/MAKE_ASSETS.md for capture steps. -->
 
 
-A single-day sidebar view for focused planning. Navigate between days with arrow buttons. Supports the same drag-and-drop, resize, completion toggle, and delete actions as the weekly grid.
+A single-day sidebar view for focused planning. Navigate between days with arrow buttons. Supports the same drag-and-drop, resize, completion toggle, and delete actions as the weekly grid — including its own collapsible backlog list (search, priority icons, due dates, tag-color bar) so tasks are draggable directly within the day panel, not just the weekly view.
+
+**Add a task from any open note** — right-click a task line (`- [ ] ...`) anywhere in your vault and choose *Time blocks: add to day panel*. It's sent straight to the day panel's selected day at the next free hour slot, without opening the backlog or dragging anything.
 
 ### Google Calendar integration
 
@@ -255,7 +257,7 @@ npm install          # install dependencies
 npm run build        # type-check + bundle
 npm run dev          # watch mode
 npm run lint         # ESLint
-npm test             # Vitest unit tests (173+ tests, no Obsidian install needed)
+npm test             # Vitest unit tests (185+ tests, no Obsidian install needed)
 npm run test:watch   # test watch mode
 ```
 
