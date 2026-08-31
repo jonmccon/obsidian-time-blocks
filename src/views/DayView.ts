@@ -15,6 +15,7 @@ import { queryTasks, scanAllTasks, setTaskCompletion } from '../utils/taskQuery'
 import {
 	formatDate,
 	formatHour,
+	findNextAvailableHour,
 	isToday,
 } from '../utils/weekUtils';
 
@@ -39,6 +40,12 @@ export class DayView extends ItemView {
 	// Elements rebuilt on each render() call
 	private navEl!: HTMLElement;
 	private slotsEl!: HTMLElement;
+	private backlogEl!: HTMLElement;
+	private backlogListEl!: HTMLElement;
+	private backlogSearchInput!: HTMLInputElement;
+
+	/** Whether the backlog panel is expanded. Persists across re-renders. */
+	private backlogVisible = true;
 
 	// Drag state
 	private draggingTaskId: string | null = null;
@@ -82,6 +89,7 @@ export class DayView extends ItemView {
 	/** Fetches tasks from the vault and GCal events, then re-renders blocks. */
 	async refresh(): Promise<void> {
 		await Promise.all([this.loadTasks(), this.loadGCalEvents()]);
+		this.renderBacklogList();
 		this.renderBlocks();
 	}
 
@@ -172,6 +180,7 @@ export class DayView extends ItemView {
 		root.addClass('tb-day-root');
 
 		this.buildDayNav(root);
+		this.buildBacklogPanel(root);
 		this.buildGrid(root);
 	}
 
@@ -233,6 +242,111 @@ export class DayView extends ItemView {
 			month: 'short',
 			day: 'numeric',
 		});
+	}
+
+	// ── Backlog panel ─────────────────────────────────────────────────────────
+
+	private buildBacklogPanel(root: HTMLElement): void {
+		this.backlogEl = root.createDiv('tb-day-backlog');
+
+		const header = this.backlogEl.createDiv('tb-day-backlog-header');
+		const toggleBtn = header.createEl('button', {
+			cls: 'tb-day-backlog-toggle',
+			text: this.backlogVisible ? '▾ Backlog' : '▸ Backlog',
+			attr: { type: 'button', 'aria-label': 'Toggle backlog panel' },
+		});
+		toggleBtn.addEventListener('click', () => {
+			this.backlogVisible = !this.backlogVisible;
+			toggleBtn.textContent = this.backlogVisible ? '▾ Backlog' : '▸ Backlog';
+			this.backlogListEl.toggleClass('is-hidden', !this.backlogVisible);
+			searchRow.toggleClass('is-hidden', !this.backlogVisible);
+		});
+
+		const searchRow = this.backlogEl.createDiv('tb-day-backlog-search-row');
+		this.backlogSearchInput = searchRow.createEl('input', {
+			type: 'text',
+			cls: 'tb-search-input',
+			placeholder: 'Filter tasks…',
+		});
+		this.backlogSearchInput.addEventListener('input', () => this.renderBacklogList());
+		if (!this.backlogVisible) searchRow.addClass('is-hidden');
+
+		this.backlogListEl = this.backlogEl.createDiv('tb-day-backlog-list');
+		if (!this.backlogVisible) this.backlogListEl.addClass('is-hidden');
+	}
+
+	private renderBacklogList(): void {
+		if (!this.backlogListEl) return;
+		this.backlogListEl.empty();
+
+		const query = this.backlogSearchInput?.value?.toLowerCase() ?? '';
+		const visible = this.backlogTasks.filter((t) =>
+			t.title.toLowerCase().includes(query)
+		);
+
+		if (visible.length === 0) {
+			this.backlogListEl.createEl('p', {
+				text: query ? 'No matching tasks.' : 'No unscheduled tasks for this day.',
+				cls: 'tb-empty-msg',
+			});
+			return;
+		}
+
+		for (const task of visible) {
+			this.buildBacklogTaskItem(task);
+		}
+	}
+
+	private buildBacklogTaskItem(task: TaskItem): void {
+		const el = this.backlogListEl.createDiv('tb-task-item');
+		el.setAttribute('draggable', 'true');
+		el.dataset.taskId = task.id;
+		el.setAttribute('title', `${task.filePath} : line ${task.lineNumber}`);
+		if (task.completed) el.addClass('tb-task-item--completed');
+
+		const taskColor = resolveTaskColor(task, this.plugin.settings);
+		if (taskColor !== this.plugin.settings.taskBlockColor) {
+			const indicator = el.createDiv('tb-tag-color-indicator');
+			indicator.setCssProps({ '--tb-tag-color': taskColor });
+		}
+
+		const header = el.createDiv('tb-task-header');
+
+		if (task.priority !== undefined) {
+			const icons = ['', '🔺', '⏫', '🔼', '🔽', '⏬'];
+			header.createSpan({
+				text: icons[task.priority] ?? '',
+				cls: 'tb-task-prio',
+			});
+		}
+
+		const titleLink = header.createEl('a', {
+			text: task.title,
+			cls: 'tb-task-title',
+			attr: { href: '#', 'aria-label': 'Open task in source file' },
+		});
+		titleLink.addEventListener('click', (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			void this.openTaskSource(task.id);
+		});
+
+		if (task.dueDate) {
+			const dateEl = el.createDiv({
+				text: `Due ${task.dueDate.toLocaleDateString()}`,
+				cls: 'tb-task-due',
+			});
+			if (task.dueDate < new Date()) dateEl.addClass('tb-overdue');
+		}
+
+		el.addEventListener('dragstart', (e: DragEvent) => {
+			this.draggingTaskId = task.id;
+			this.draggingBlockId = null;
+			e.dataTransfer?.setData('text/plain', task.id);
+			if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+			el.addClass('tb-dragging');
+		});
+		el.addEventListener('dragend', () => el.removeClass('tb-dragging'));
 	}
 
 	// ── Time grid ─────────────────────────────────────────────────────────────
@@ -331,6 +445,51 @@ export class DayView extends ItemView {
 
 	// ── Drop handling ──────────────────────────────────────────────────────────
 
+	/**
+	 * Schedules an arbitrary task (e.g. from a right-click in any open note)
+	 * onto the panel's currently selected day, at a default time slot.
+	 * Used by the "Add to day panel" editor context-menu command.
+	 */
+	async scheduleExternalTask(taskId: string): Promise<void> {
+		let task = this.taskIndex.get(taskId);
+		if (!task) {
+			await this.rebuildTaskIndex();
+			task = this.taskIndex.get(taskId);
+		}
+		if (!task) {
+			new Notice('Time blocks: task not found.');
+			return;
+		}
+
+		const { workdayStart } = this.plugin.settings;
+		const startHour = this.findNextAvailableHour(workdayStart);
+
+		await this.scheduleTask(taskId, startHour, 0);
+		await this.plugin.saveBlocks();
+		await this.loadTasks();
+		this.renderBacklogList();
+		this.renderBlocks();
+		new Notice(`Time blocks: added "${task.title}" to ${this.formatDayLabel(this.selectedDay)}.`);
+	}
+
+	/** Returns the current selected day (used to decide which day panel a task lands on). */
+	getSelectedDay(): Date {
+		return this.selectedDay;
+	}
+
+	/** Finds the first hour (from `from` onward) with no existing block on the selected day. */
+	private findNextAvailableHour(from: number): number {
+		const dayIndex = getDayIndex(this.selectedDay);
+		const weekStartKey = formatDate(getWeekStartForDay(this.selectedDay));
+		const takenHours = new Set(
+			this.plugin.blocks
+				.filter((b) => b.weekStart === weekStartKey && b.dayIndex === dayIndex)
+				.map((b) => b.startHour)
+		);
+		const { workdayEnd } = this.plugin.settings;
+		return findNextAvailableHour(takenHours, from, workdayEnd);
+	}
+
 	private async handleDrop(startHour: number, startMinute: number): Promise<void> {
 		if (this.draggingTaskId) {
 			await this.scheduleTask(this.draggingTaskId, startHour, startMinute);
@@ -343,6 +502,7 @@ export class DayView extends ItemView {
 
 		await this.plugin.saveBlocks();
 		await this.loadTasks();
+		this.renderBacklogList();
 		this.renderBlocks();
 	}
 
@@ -572,6 +732,7 @@ export class DayView extends ItemView {
 		this.plugin.blocks = this.plugin.blocks.filter((b) => b.id !== blockId);
 		await this.plugin.saveBlocks();
 		await this.loadTasks();
+		this.renderBacklogList();
 		this.renderBlocks();
 	}
 
@@ -632,6 +793,7 @@ export class DayView extends ItemView {
 		}
 
 		await this.loadTasks();
+		this.renderBacklogList();
 		this.renderBlocks();
 	}
 }

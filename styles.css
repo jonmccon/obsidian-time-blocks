@@ -790,6 +790,56 @@ body.tb-no-user-select {
 	border-right: 1px solid var(--background-modifier-border);
 }
 
+/* ── Day view backlog panel ─────────────────────────────────── */
+.tb-day-backlog {
+	flex-shrink: 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	max-height: 45%;
+	display: flex;
+	flex-direction: column;
+}
+
+.tb-day-backlog-header {
+	display: flex;
+	align-items: center;
+	padding: 4px 8px;
+	flex-shrink: 0;
+}
+
+.tb-day-backlog-toggle {
+	background: none;
+	border: none;
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-normal);
+	padding: 2px 4px;
+}
+
+.tb-day-backlog-toggle:hover {
+	color: var(--interactive-accent);
+}
+
+.tb-day-backlog-search-row {
+	padding: 0 8px 4px;
+	flex-shrink: 0;
+}
+
+.tb-day-backlog-search-row.is-hidden {
+	display: none;
+}
+
+.tb-day-backlog-list {
+	overflow-y: auto;
+	padding: 0 8px 6px;
+	flex: 1;
+	min-height: 0;
+}
+
+.tb-day-backlog-list.is-hidden {
+	display: none;
+}
+
 /* ── Tag color indicator (left border on backlog items) ────── */
 .tb-tag-color-indicator {
 	position: absolute;

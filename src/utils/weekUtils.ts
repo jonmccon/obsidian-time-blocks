@@ -56,3 +56,20 @@ export function formatHour(hour: number): string {
 	if (hour === 12) return '12 PM';
 	return `${hour - 12} PM`;
 }
+
+/**
+ * Finds the first hour (starting at `from`, up to but excluding `workdayEnd`)
+ * that is not already occupied by an existing block, so a newly-added task
+ * lands on an empty slot instead of stacking on top of something else.
+ * Falls back to `from` itself if every hour in the range is taken.
+ */
+export function findNextAvailableHour(
+	takenHours: Set<number>,
+	from: number,
+	workdayEnd: number
+): number {
+	for (let h = from; h < workdayEnd; h++) {
+		if (!takenHours.has(h)) return h;
+	}
+	return from;
+}
