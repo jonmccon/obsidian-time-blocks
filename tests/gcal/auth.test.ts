@@ -205,3 +205,204 @@ describe('exchangeCodeForTokens / token endpoint error handling', () => {
 		).rejects.toThrow('invalid_client');
 	});
 });
+
+describe('completeAuthorization', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it('happy path: valid code+state exchanges successfully and calls onSuccess', async () => {
+		const obsidianModule = await import('obsidian');
+		vi.spyOn(obsidianModule, 'requestUrl').mockResolvedValueOnce({
+			json: {
+				access_token: 'tok-123',
+				expires_in: 3600,
+				refresh_token: 'refresh-123',
+				scope: CALENDAR_SCOPES,
+				token_type: 'Bearer',
+			},
+			status: 200,
+			text: '',
+			arrayBuffer: new ArrayBuffer(0),
+			headers: {},
+		});
+
+		const { completeAuthorization } = await import('../../src/gcal/auth');
+		const onSuccess = vi.fn();
+		const resetPendingAuth = vi.fn();
+		const notify = vi.fn();
+
+		await completeAuthorization('the-code', 'matching-state', {
+			clientId: 'test-client-id',
+			pendingState: 'matching-state',
+			pendingCodeVerifier: 'verifier-123',
+			onSuccess,
+			resetPendingAuth,
+			notify,
+		});
+
+		expect(onSuccess).toHaveBeenCalledTimes(1);
+		expect(onSuccess.mock.calls[0][0]).toMatchObject({
+			access_token: 'tok-123',
+			refresh_token: 'refresh-123',
+		});
+		expect(resetPendingAuth).toHaveBeenCalledTimes(1);
+		expect(notify).toHaveBeenCalledWith('Time blocks: signed in to calendar.');
+	});
+
+	it('rejects on CSRF state mismatch without exchanging the code', async () => {
+		const obsidianModule = await import('obsidian');
+		const requestUrlSpy = vi.spyOn(obsidianModule, 'requestUrl');
+
+		const { completeAuthorization } = await import('../../src/gcal/auth');
+		const onSuccess = vi.fn();
+		const resetPendingAuth = vi.fn();
+		const notify = vi.fn();
+
+		await completeAuthorization('the-code', 'attacker-state', {
+			clientId: 'test-client-id',
+			pendingState: 'expected-state',
+			pendingCodeVerifier: 'verifier-123',
+			onSuccess,
+			resetPendingAuth,
+			notify,
+		});
+
+		expect(requestUrlSpy).not.toHaveBeenCalled();
+		expect(onSuccess).not.toHaveBeenCalled();
+		expect(resetPendingAuth).toHaveBeenCalledTimes(1);
+		expect(notify).toHaveBeenCalledWith(
+			expect.stringContaining('authorization state mismatch')
+		);
+	});
+
+	it('rejects when pendingState is null but a state was received', async () => {
+		const obsidianModule = await import('obsidian');
+		const requestUrlSpy = vi.spyOn(obsidianModule, 'requestUrl');
+
+		const { completeAuthorization } = await import('../../src/gcal/auth');
+		const notify = vi.fn();
+		const resetPendingAuth = vi.fn();
+
+		await completeAuthorization('the-code', 'some-state', {
+			clientId: 'test-client-id',
+			pendingState: null,
+			pendingCodeVerifier: 'verifier-123',
+			onSuccess: vi.fn(),
+			resetPendingAuth,
+			notify,
+		});
+
+		expect(requestUrlSpy).not.toHaveBeenCalled();
+		expect(resetPendingAuth).toHaveBeenCalledTimes(1);
+		expect(notify).toHaveBeenCalledWith(
+			expect.stringContaining('authorization state mismatch')
+		);
+	});
+
+	it('accepts a null received state (bare code with no state to check)', async () => {
+		const obsidianModule = await import('obsidian');
+		vi.spyOn(obsidianModule, 'requestUrl').mockResolvedValueOnce({
+			json: {
+				access_token: 'tok-456',
+				expires_in: 3600,
+				scope: CALENDAR_SCOPES,
+				token_type: 'Bearer',
+			},
+			status: 200,
+			text: '',
+			arrayBuffer: new ArrayBuffer(0),
+			headers: {},
+		});
+
+		const { completeAuthorization } = await import('../../src/gcal/auth');
+		const onSuccess = vi.fn();
+
+		await completeAuthorization('the-code', null, {
+			clientId: 'test-client-id',
+			pendingState: 'expected-state',
+			pendingCodeVerifier: 'verifier-123',
+			onSuccess,
+			resetPendingAuth: vi.fn(),
+		});
+
+		expect(onSuccess).toHaveBeenCalledTimes(1);
+	});
+
+	it('reports an error and does not reset pending auth when no flow is in progress', async () => {
+		const { completeAuthorization } = await import('../../src/gcal/auth');
+		const notify = vi.fn();
+		const resetPendingAuth = vi.fn();
+		const onSuccess = vi.fn();
+
+		await completeAuthorization('the-code', null, {
+			clientId: 'test-client-id',
+			pendingState: null,
+			pendingCodeVerifier: null,
+			onSuccess,
+			resetPendingAuth,
+			notify,
+		});
+
+		expect(onSuccess).not.toHaveBeenCalled();
+		expect(resetPendingAuth).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledWith('Time blocks: click authorize first.');
+	});
+
+	it('surfaces an exchange-failure error via notify without throwing', async () => {
+		const obsidianModule = await import('obsidian');
+		vi.spyOn(obsidianModule, 'requestUrl').mockResolvedValueOnce({
+			json: {
+				error: 'invalid_grant',
+				error_description: 'Token has been expired or revoked.',
+			},
+			status: 400,
+			text: '',
+			arrayBuffer: new ArrayBuffer(0),
+			headers: {},
+		});
+
+		const { completeAuthorization } = await import('../../src/gcal/auth');
+		const onSuccess = vi.fn();
+		const resetPendingAuth = vi.fn();
+		const notify = vi.fn();
+
+		await expect(
+			completeAuthorization('bad-code', 'matching-state', {
+				clientId: 'test-client-id',
+				pendingState: 'matching-state',
+				pendingCodeVerifier: 'verifier-123',
+				onSuccess,
+				resetPendingAuth,
+				notify,
+			})
+		).resolves.toBeUndefined();
+
+		expect(onSuccess).not.toHaveBeenCalled();
+		// On exchange failure the flow stays pending so the user can retry
+		// without re-authorizing from scratch.
+		expect(resetPendingAuth).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledWith(
+			expect.stringContaining('authentication failed')
+		);
+		expect(notify).toHaveBeenCalledWith(
+			expect.stringContaining('invalid_grant')
+		);
+	});
+
+	it('defaults to a Notice when no notify callback is supplied', async () => {
+		const obsidianModule = await import('obsidian');
+		const noticeSpy = vi.spyOn(obsidianModule, 'Notice');
+
+		const { completeAuthorization } = await import('../../src/gcal/auth');
+		await completeAuthorization('the-code', null, {
+			clientId: 'test-client-id',
+			pendingState: null,
+			pendingCodeVerifier: null,
+			onSuccess: vi.fn(),
+			resetPendingAuth: vi.fn(),
+		});
+
+		expect(noticeSpy).toHaveBeenCalledWith('Time blocks: click authorize first.');
+	});
+});

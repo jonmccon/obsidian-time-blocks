@@ -8,7 +8,7 @@
  * Token storage is handled by the plugin's data.json via callbacks.
  */
 
-import { requestUrl } from 'obsidian';
+import { Notice, requestUrl } from 'obsidian';
 import type { OAuthTokens, TokenEndpointResponse } from './types';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -188,6 +188,97 @@ export async function refreshAccessToken(
 /** Returns true when the stored access token has expired (or will within 60 s). */
 export function isTokenExpired(tokens: OAuthTokens): boolean {
 	return Date.now() >= tokens.expires_at - 60_000;
+}
+
+// ── Shared authorization-completion flow ─────────────────────────────────────
+
+/**
+ * Context needed by `completeAuthorization` to finish an in-progress PKCE
+ * flow, regardless of *how* the code+state pair was obtained (manual paste
+ * into the settings pane, or the `obsidian://gcal-callback` protocol
+ * handler). Kept intentionally free of any Obsidian `Plugin`/`SettingTab`
+ * coupling so the control-flow logic (in particular the CSRF guard) lives in
+ * exactly one place and behaves identically from both callers.
+ */
+export interface CompleteAuthorizationContext {
+	/** The OAuth client ID configured by the user. */
+	clientId: string;
+	/**
+	 * The `state` value generated when the authorization URL was built
+	 * (stored by the caller when the "Authorize" flow was started). `null`
+	 * if no flow is currently in progress.
+	 */
+	pendingState: string | null;
+	/**
+	 * The PKCE code verifier generated when the authorization URL was
+	 * built. `null` if no flow is currently in progress.
+	 */
+	pendingCodeVerifier: string | null;
+	/**
+	 * Called with the freshly obtained tokens once the exchange succeeds.
+	 * Typically persists them into plugin settings.
+	 */
+	onSuccess: (tokens: OAuthTokens) => void | Promise<void>;
+	/**
+	 * Called after a successful exchange to clear any in-progress-auth
+	 * state (pending code verifier / state / auth URL) so a stale flow
+	 * cannot be reused.
+	 */
+	resetPendingAuth: () => void;
+	/**
+	 * Surfaces a message to the user. Defaults to `new Notice(message)`
+	 * when omitted (tests may override this to assert on messages without
+	 * depending on the Obsidian Notice UI).
+	 */
+	notify?: (message: string) => void;
+}
+
+/**
+ * Completes a Google OAuth 2.0 authorization-code flow: validates the CSRF
+ * `state` guard, exchanges the code for tokens, and reports the outcome via
+ * `ctx.notify` (defaulting to a `Notice`).
+ *
+ * This is the single shared implementation used by both the manual
+ * code-paste flow (settings pane) and the `obsidian://gcal-callback`
+ * protocol-handler fast path — the CSRF guard and error/success messaging
+ * must behave identically from either entry point.
+ */
+export async function completeAuthorization(
+	code: string,
+	state: string | null,
+	ctx: CompleteAuthorizationContext
+): Promise<void> {
+	const notify = ctx.notify ?? ((message: string) => { new Notice(message); });
+
+	if (!ctx.pendingCodeVerifier) {
+		notify('Time blocks: click authorize first.');
+		return;
+	}
+
+	// Validate state to guard against CSRF.
+	if (
+		state !== null &&
+		(ctx.pendingState === null || state !== ctx.pendingState)
+	) {
+		notify(
+			'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
+		);
+		ctx.resetPendingAuth();
+		return;
+	}
+
+	try {
+		const tokens = await exchangeCodeForTokens({
+			clientId: ctx.clientId,
+			code,
+			codeVerifier: ctx.pendingCodeVerifier,
+		});
+		await ctx.onSuccess(tokens);
+		ctx.resetPendingAuth();
+		notify('Time blocks: signed in to calendar.');
+	} catch (err) {
+		notify(`Time blocks: authentication failed: ${String(err)}`);
+	}
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────

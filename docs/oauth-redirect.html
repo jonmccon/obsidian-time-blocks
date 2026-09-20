@@ -127,6 +127,9 @@
     <label for="codeField">Authorization code</label>
     <input id="codeField" type="text" readonly />
     <button id="copyBtn" type="button">Copy code</button>
+    <a id="obsidianBtn" href="#" style="display: inline-block; text-decoration: none; margin-left: 8px;">
+      <button type="button">Open in Obsidian</button>
+    </a>
     <span id="copyStatus" role="status"></span>
 
     <ol>
@@ -135,6 +138,14 @@
       <li>Open <strong>Settings → Time Blocks → Google Calendar</strong>.</li>
       <li>Paste the code into the "Authorization code" field and confirm.</li>
     </ol>
+
+    <p class="muted">
+      Prefer a shortcut? <strong>Open in Obsidian</strong> attempts to hand the
+      code straight back to the plugin via an <code>obsidian://</code> link —
+      this only works if Obsidian is installed and running, and is not
+      required. If nothing happens when you click it, use the copy/paste
+      steps above instead; they always work.
+    </p>
 
     <p class="muted">You can safely close this tab once you've copied the code.</p>
   </div>
@@ -172,6 +183,26 @@
 
         var copyBtn = document.getElementById("copyBtn");
         var copyStatus = document.getElementById("copyStatus");
+
+        // "Open in Obsidian" bonus fast-path (best-effort, not required).
+        // This is a plain OS-level deep link — Google never sees or
+        // validates this string, it only ever redirects to this real
+        // https:// page. The browser hands obsidian:// off to the OS,
+        // which routes it to Obsidian's registerObsidianProtocolHandler
+        // IF Obsidian is installed, running, and registered as the
+        // handler for that scheme. If any of that isn't true, clicking
+        // this link simply does nothing observable here — the copy/paste
+        // flow above remains fully functional either way.
+        var obsidianBtn = document.getElementById("obsidianBtn");
+        var state = params.get("state");
+        var deepLinkParams = "code=" + encodeURIComponent(code);
+        if (state) {
+          deepLinkParams += "&state=" + encodeURIComponent(state);
+        }
+        obsidianBtn.setAttribute(
+          "href",
+          "obsidian://gcal-callback?" + deepLinkParams
+        );
 
         copyBtn.addEventListener("click", function () {
           if (navigator.clipboard && navigator.clipboard.writeText) {

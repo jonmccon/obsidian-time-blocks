@@ -4,10 +4,10 @@ import TimeBlockPlugin from './main';
 import {
 	buildAuthUrl,
 	CALENDAR_SCOPES,
+	completeAuthorization,
 	generateCodeChallenge,
 	generateCodeVerifier,
 	generateState,
-	exchangeCodeForTokens,
 } from './gcal/auth';
 import { listCalendars } from './gcal/calendarApi';
 import type { ConflictStrategy, OAuthTokens } from './gcal/types';
@@ -144,6 +144,33 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 	constructor(app: App, plugin: TimeBlockPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	/**
+	 * Completes an in-progress PKCE authorization flow using the code/state
+	 * pair delivered by the `obsidian://gcal-callback` protocol handler
+	 * (see main.ts). Reuses the exact same shared `completeAuthorization`
+	 * logic — including the CSRF state guard — as the manual code-paste
+	 * submit handler below, so behavior is identical regardless of which
+	 * path delivered the code.
+	 */
+	async completePendingAuthorization(code: string, state: string | null): Promise<void> {
+		const { settings } = this.plugin;
+		await completeAuthorization(code, state, {
+			clientId: settings.oauthClientId,
+			pendingState: this.pendingState,
+			pendingCodeVerifier: this.pendingCodeVerifier,
+			onSuccess: async (tokens) => {
+				settings.oauthTokens = tokens;
+				await this.plugin.saveSettings();
+			},
+			resetPendingAuth: () => {
+				this.pendingCodeVerifier = null;
+				this.pendingState = null;
+				this.pendingAuthUrl = null;
+			},
+		});
+		this.refreshDomState();
 	}
 
 	override getSettingDefinitions(): SettingDefinitionItem[] {
@@ -523,39 +550,21 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 												// Not a URL — treat as bare code.
 											}
 
-											// Validate state to guard against CSRF.
-											if (
-												receivedState !== null &&
-												(this.pendingState === null ||
-													receivedState !== this.pendingState)
-											) {
-												new Notice(
-													'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
-												);
-												this.pendingCodeVerifier = null;
-												this.pendingState = null;
-												this.pendingAuthUrl = null;
-												return;
-											}
-
-											try {
-												const tokens = await exchangeCodeForTokens({
-													clientId: settings.oauthClientId,
-													code,
-													codeVerifier: this.pendingCodeVerifier,
-												});
-												settings.oauthTokens = tokens;
-												await this.plugin.saveSettings();
-												this.pendingCodeVerifier = null;
-												this.pendingState = null;
-												this.pendingAuthUrl = null;
-												new Notice('Time blocks: signed in to calendar.');
-												this.refreshDomState();
-											} catch (err) {
-												new Notice(
-													`Time blocks: authentication failed: ${String(err)}`
-												);
-											}
+											await completeAuthorization(code, receivedState, {
+												clientId: settings.oauthClientId,
+												pendingState: this.pendingState,
+												pendingCodeVerifier: this.pendingCodeVerifier,
+												onSuccess: async (tokens) => {
+													settings.oauthTokens = tokens;
+													await this.plugin.saveSettings();
+												},
+												resetPendingAuth: () => {
+													this.pendingCodeVerifier = null;
+													this.pendingState = null;
+													this.pendingAuthUrl = null;
+												},
+											});
+											this.refreshDomState();
 										})
 								);
 						},
