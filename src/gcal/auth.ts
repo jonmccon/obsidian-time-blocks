@@ -19,15 +19,22 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 /**
  * The OAuth redirect URI.
  *
- * For Obsidian plugins, we use the loopback address `http://127.0.0.1`.
- * Google treats loopback redirects specially — it allows any port and ignores
- * the path component, so the actual redirect may go to e.g.
- * `http://127.0.0.1:PORT/callback`.  The value registered in Google Cloud
- * Console must match this base URI.
+ * Option D: this plugin registers a "Web application" OAuth client in
+ * Google Cloud Console (not "Desktop app"/native), which requires a real
+ * `https://` redirect URI — loopback addresses are not accepted for that
+ * client type. The redirect target is a static, backend-free page hosted
+ * on GitHub Pages (`docs/oauth-redirect.html` in this repo, served from the
+ * `/docs` folder on the default branch). Google delivers the `code` and
+ * `state` params via the query string (`window.location.search`) on that
+ * page; the user copies the code and pastes it into the plugin's settings
+ * pane to complete the exchange. Confirmed viable in the Task 0b spike
+ * (see /tmp/crew-handoff/t_1cfed21d/SPIKE_task0b_weblient_redirect.md).
  *
- * @see https://developers.google.com/identity/protocols/oauth2/native-app#redirect-uri_loopback
+ * The exact URI here must match, character-for-character, an "Authorized
+ * redirect URI" entry on the Web-application OAuth client in Google Cloud
+ * Console.
  */
-export const REDIRECT_URI = 'http://127.0.0.1';
+export const REDIRECT_URI = 'https://jonmccon.github.io/obsidian-time-blocks/oauth-redirect.html';
 
 /** Scopes required for read + write calendar access. */
 export const CALENDAR_SCOPES = 'https://www.googleapis.com/auth/calendar';
