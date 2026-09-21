@@ -3,7 +3,6 @@ import {
 	Notice,
 	PluginSettingTab,
 	Setting,
-	createFragment,
 	requestUrl,
 } from 'obsidian';
 import type { SettingDefinitionItem, SettingGroupItem } from 'obsidian';
@@ -552,19 +551,26 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 					// the Web-application OAuth client in Google Cloud Console.
 					{
 						name: 'Step 3: Create OAuth credentials',
-						desc: (createFragment as unknown as (
-							builder: (el: DocumentFragment) => void
-						) => DocumentFragment)((el: DocumentFragment) => {
-							el.appendText('Create an OAuth client ID and choose ');
-							el.createEl('strong', { text: 'Web application' });
-							el.appendText(
+						desc: (() => {
+							const fragment = document.createDocumentFragment();
+							const applicationType = document.createElement('strong');
+							const redirectUri = document.createElement('code');
+
+							applicationType.textContent = 'Web application';
+							redirectUri.textContent = REDIRECT_URI;
+
+							fragment.append('Create an OAuth client ID and choose ');
+							fragment.append(applicationType);
+							fragment.append(
 								' as the application type (not "Desktop app" — Web application ' +
 									'client types are required for the https:// redirect URI below). ' +
 									'Then copy this exact URL into the redirect URIs field:'
 							);
-							el.createEl('br');
-							el.createEl('code', { text: REDIRECT_URI });
-						}),
+							fragment.append(document.createElement('br'));
+							fragment.append(redirectUri);
+
+							return fragment;
+						})(),
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
