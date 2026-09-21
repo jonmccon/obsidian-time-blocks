@@ -88,6 +88,20 @@
   }
   button:hover { background: #3b52c4; }
   button:active { transform: translateY(1px); }
+  .button-link {
+    display: inline-block;
+    font-size: 0.95rem;
+    font-family: inherit;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid #4a63e0;
+    background: #4a63e0;
+    color: #fff;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .button-link:hover { background: #3b52c4; }
+  .button-link:active { transform: translateY(1px); }
   #copyStatus {
     margin-left: 10px;
     font-size: 0.88rem;
@@ -127,9 +141,7 @@
     <label for="codeField">Authorization code</label>
     <input id="codeField" type="text" readonly />
     <button id="copyBtn" type="button">Copy code</button>
-    <a id="obsidianBtn" href="#" style="display: inline-block; text-decoration: none; margin-left: 8px;">
-      <button type="button">Open in Obsidian</button>
-    </a>
+    <a id="obsidianBtn" href="#" class="button-link" style="display: inline-block; margin-left: 8px;">Open in Obsidian</a>
     <span id="copyStatus" role="status"></span>
 
     <ol>

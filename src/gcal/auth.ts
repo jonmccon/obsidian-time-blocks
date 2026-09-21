@@ -255,11 +255,13 @@ export async function completeAuthorization(
 		return;
 	}
 
-	// Validate state to guard against CSRF.
-	if (
-		state !== null &&
-		(ctx.pendingState === null || state !== ctx.pendingState)
-	) {
+	// Validate state to guard against CSRF. Compare by strict equality
+	// (covers both being null, i.e. no flow ever captured a state) — do NOT
+	// special-case "no state received" as an automatic pass: a flow that
+	// generated a state must always see that same state pass back through,
+	// otherwise a completion path that only forwards the bare code (e.g.
+	// "Copy code" without state) could always bypass the CSRF check.
+	if (ctx.pendingState !== state) {
 		notify(
 			'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
 		);

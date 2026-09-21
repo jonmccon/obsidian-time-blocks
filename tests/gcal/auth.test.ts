@@ -300,7 +300,38 @@ describe('completeAuthorization', () => {
 		);
 	});
 
-	it('accepts a null received state (bare code with no state to check)', async () => {
+	it('rejects a null received state when a flow with a state is in progress', async () => {
+		// A flow always generates a state when it starts (generateState()),
+		// so a completion callback that arrives with no state at all (e.g. a
+		// caller that only captured the bare code) must NOT be treated as a
+		// free pass — otherwise CSRF protection could always be bypassed by
+		// simply not sending state. See PR #34 review discussion.
+		const obsidianModule = await import('obsidian');
+		const requestUrlSpy = vi.spyOn(obsidianModule, 'requestUrl');
+
+		const { completeAuthorization } = await import('../../src/gcal/auth');
+		const onSuccess = vi.fn();
+		const resetPendingAuth = vi.fn();
+		const notify = vi.fn();
+
+		await completeAuthorization('the-code', null, {
+			clientId: 'test-client-id',
+			pendingState: 'expected-state',
+			pendingCodeVerifier: 'verifier-123',
+			onSuccess,
+			resetPendingAuth,
+			notify,
+		});
+
+		expect(requestUrlSpy).not.toHaveBeenCalled();
+		expect(onSuccess).not.toHaveBeenCalled();
+		expect(resetPendingAuth).toHaveBeenCalledTimes(1);
+		expect(notify).toHaveBeenCalledWith(
+			expect.stringContaining('authorization state mismatch')
+		);
+	});
+
+	it('accepts a null received state only when no state was ever pending', async () => {
 		const obsidianModule = await import('obsidian');
 		vi.spyOn(obsidianModule, 'requestUrl').mockResolvedValueOnce({
 			json: {
@@ -320,7 +351,7 @@ describe('completeAuthorization', () => {
 
 		await completeAuthorization('the-code', null, {
 			clientId: 'test-client-id',
-			pendingState: 'expected-state',
+			pendingState: null,
 			pendingCodeVerifier: 'verifier-123',
 			onSuccess,
 			resetPendingAuth: vi.fn(),

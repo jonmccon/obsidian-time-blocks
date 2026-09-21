@@ -664,7 +664,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							setting
 								.addText((text) =>
 									text
-										.setPlaceholder('http://127.0.0.1?code=… or just the code')
+										.setPlaceholder('https://…/oauth-redirect.html?code=… or just the code')
 										.onChange((value) => {
 											authCodeInput = value;
 										})
