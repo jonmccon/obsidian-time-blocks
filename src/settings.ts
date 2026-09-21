@@ -1,4 +1,11 @@
-import { App, Notice, PluginSettingTab, Setting, requestUrl } from 'obsidian';
+import {
+	App,
+	Notice,
+	PluginSettingTab,
+	Setting,
+	createFragment,
+	requestUrl,
+} from 'obsidian';
 import type { SettingDefinitionItem, SettingGroupItem } from 'obsidian';
 import TimeBlockPlugin from './main';
 import {
@@ -480,7 +487,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							setting
 								.addButton((btn) =>
 									btn
-										.setButtonText('Open Google Cloud Console')
+										.setButtonText('Open google cloud console')
 										.onClick(() => {
 											window.open('https://console.cloud.google.com/projectcreate');
 										})
@@ -509,7 +516,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							setting
 								.addButton((btn) =>
 									btn
-										.setButtonText('Enable Calendar API')
+										.setButtonText('Enable calendar API')
 										.onClick(() => {
 											window.open(
 												'https://console.cloud.google.com/apis/library/calendar-json.googleapis.com'
@@ -518,7 +525,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 								)
 								.addToggle((toggle) =>
 									toggle
-										.setTooltip("I've enabled the Calendar API")
+										.setTooltip("I've enabled the calendar API")
 										.setValue(settings.oauthSetupApiEnabled)
 										.onChange(async (value) => {
 											settings.oauthSetupApiEnabled = value;
@@ -535,7 +542,9 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 					// the Web-application OAuth client in Google Cloud Console.
 					{
 						name: 'Step 3: Create OAuth credentials',
-						desc: createFragment((el: DocumentFragment) => {
+						desc: (createFragment as unknown as (
+							builder: (el: DocumentFragment) => void
+						) => DocumentFragment)((el: DocumentFragment) => {
 							el.appendText('Create an OAuth client ID and choose ');
 							el.createEl('strong', { text: 'Web application' });
 							el.appendText(
@@ -551,10 +560,10 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						render: (setting: Setting) => {
 							setting
 								.addButton((btn) =>
-									btn.setButtonText('Copy redirect URI').onClick(async () => {
+									btn.setButtonText('Copy redirect address').onClick(async () => {
 										try {
 											await navigator.clipboard.writeText(REDIRECT_URI);
-											new Notice('Time blocks: redirect URI copied.');
+											new Notice('Time blocks: redirect address copied.');
 										} catch {
 											new Notice(
 												`Time blocks: could not copy automatically — copy this manually: ${REDIRECT_URI}`
@@ -564,14 +573,14 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 								)
 								.addButton((btn) =>
 									btn
-										.setButtonText('Open OAuth credentials page')
+										.setButtonText('Open authorization credentials page')
 										.onClick(() => {
 											window.open('https://console.cloud.google.com/apis/credentials');
 										})
 								)
 								.addToggle((toggle) =>
 									toggle
-										.setTooltip("I've created a Web application client and added the redirect URI")
+										.setTooltip("I've created a web application client and added the redirect address")
 										.setValue(settings.oauthSetupRedirectConfigured)
 										.onChange(async (value) => {
 											settings.oauthSetupRedirectConfigured = value;
