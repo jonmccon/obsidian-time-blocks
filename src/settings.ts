@@ -3,7 +3,6 @@ import {
 	Notice,
 	PluginSettingTab,
 	Setting,
-	createFragment,
 	requestUrl,
 } from 'obsidian';
 import type { SettingDefinitionItem, SettingGroupItem } from 'obsidian';
@@ -542,19 +541,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 					// the Web-application OAuth client in Google Cloud Console.
 					{
 						name: 'Step 3: Create OAuth credentials',
-						desc: (createFragment as unknown as (
-							builder: (el: DocumentFragment) => void
-						) => DocumentFragment)((el: DocumentFragment) => {
-							el.appendText('Create an OAuth client ID and choose ');
-							el.createEl('strong', { text: 'Web application' });
-							el.appendText(
-								' as the application type (not "Desktop app" — Web application ' +
-									'client types are required for the https:// redirect URI below). ' +
-									'Then copy this exact URL into the redirect URIs field:'
-							);
-							el.createEl('br');
-							el.createEl('code', { text: REDIRECT_URI });
-						}),
+						desc: createOAuthCredentialsDescription(),
 						visible: () =>
 							settings.enableTwoWaySync && settings.oauthSetupApiEnabled,
 						render: (setting: Setting) => {
@@ -905,6 +892,29 @@ export function createCalendarFeedId(): string {
 		suffix = Math.random().toString(16).slice(2, 10);
 	}
 	return `calendar-${Date.now()}-${suffix}`;
+}
+
+function createOAuthCredentialsDescription(): DocumentFragment {
+	const fragment = document.createDocumentFragment();
+	fragment.append(document.createTextNode('Create an OAuth client ID and choose '));
+
+	const applicationType = document.createElement('strong');
+	applicationType.textContent = 'Web application';
+	fragment.append(applicationType);
+	fragment.append(
+		document.createTextNode(
+			' as the application type (not "Desktop app" — Web application ' +
+				'client types are required for the https:// redirect URI below). ' +
+				'Then copy this exact URL into the redirect URIs field:'
+		)
+	);
+	fragment.append(document.createElement('br'));
+
+	const redirectUri = document.createElement('code');
+	redirectUri.textContent = REDIRECT_URI;
+	fragment.append(redirectUri);
+
+	return fragment;
 }
 
 function setCalendarStatusEl(
