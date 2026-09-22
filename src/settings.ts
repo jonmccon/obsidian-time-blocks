@@ -487,7 +487,9 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							'Open Google Cloud Console and create a new project (or pick an ' +
 							'existing one you want to use for this plugin).',
 						visible: () =>
-							settings.enableTwoWaySync && settings.oauthTokens === null,
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							!settings.oauthSetupProjectCreated,
 						render: (setting: Setting) => {
 							setting
 								.addButton((btn) =>
@@ -518,7 +520,8 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
-							settings.oauthSetupProjectCreated,
+							settings.oauthSetupProjectCreated &&
+							!settings.oauthSetupApiEnabled,
 						render: (setting: Setting) => {
 							setting
 								.addButton((btn) =>
@@ -565,7 +568,8 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
-							settings.oauthSetupApiEnabled,
+							settings.oauthSetupApiEnabled &&
+							!settings.oauthSetupRedirectConfigured,
 						render: (setting: Setting) => {
 							setting
 								.addButton((btn) =>
@@ -633,7 +637,8 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
-							settings.oauthSetupRedirectConfigured,
+							settings.oauthSetupRedirectConfigured &&
+							(!settings.oauthClientId || !settings.oauthClientSecret),
 					},
 					// Step 5: authorize. Both the "Open in Obsidian" deep-link hand-back
 					// and the manual code paste are equally valid paths — shown together
@@ -646,6 +651,9 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
+							settings.oauthSetupProjectCreated &&
+							settings.oauthSetupApiEnabled &&
+							settings.oauthSetupRedirectConfigured &&
 							!!settings.oauthClientId &&
 							!!settings.oauthClientSecret,
 						render: (setting: Setting) => {
@@ -689,6 +697,9 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
+							settings.oauthSetupProjectCreated &&
+							settings.oauthSetupApiEnabled &&
+							settings.oauthSetupRedirectConfigured &&
 							!!settings.oauthClientId &&
 							!!settings.oauthClientSecret,
 						render: (setting: Setting) => {

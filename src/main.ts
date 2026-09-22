@@ -110,8 +110,8 @@ export default class TimeBlockPlugin extends Plugin {
 				return;
 			}
 			if (!this.settingTab) {
-				new Notice('Time blocks: open plugin settings, then authorize again.');
-				return;
+				this.settingTab = new TimeBlockSettingTab(this.app, this);
+				this.addSettingTab(this.settingTab);
 			}
 			void this.settingTab.completePendingAuthorization(code, state);
 		});
