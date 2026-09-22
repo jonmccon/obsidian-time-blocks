@@ -41,15 +41,13 @@ Notice(...)`, tests inject a spy instead). Function name chosen:
 src/gcal/auth.ts since that module is already the natural home for all
 PKCE/OAuth flow logic and wasn't large enough to warrant a new module.
 
-Behavior preserved byte-for-byte from the original inline code:
+Behavior of the final shared flow:
 - If `pendingCodeVerifier` is null → notify "click authorize first." and
   return (no exchange attempted, no state reset).
-- If a `state` was received AND (`pendingState` is null OR it doesn't match)
-  → notify the exact original CSRF message ("authorization state mismatch —
+- If the received `state` does not exactly equal `pendingState` (including
+  missing/null state) → notify the CSRF message ("authorization state mismatch —
   possible security issue. Please authorize again."), reset pending auth,
-  and return (no exchange attempted). This guard is unchanged/un-loosened.
-- If `state` is null (bare code, no state param present) → CSRF check is
-  skipped, matching the original "receivedState !== null" gate.
+  and return (no exchange attempted).
 - On successful exchange → call `onSuccess(tokens)`, then
   `resetPendingAuth()`, then notify "signed in to calendar."
 - On exchange failure → notify `authentication failed: <err>` (pending auth

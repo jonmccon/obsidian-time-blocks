@@ -1,9 +1,9 @@
 /**
  * OAuth 2.0 authentication for the Google Calendar API.
  *
- * Uses the Authorization-Code flow with PKCE (Proof Key for Code Exchange)
- * so there is no client secret embedded in the plugin source.  The user
- * supplies their own Google Cloud Console client ID.
+ * Uses the Authorization-Code flow with PKCE (Proof Key for Code Exchange).
+ * The user supplies their own Google Cloud Console client ID and client
+ * secret; no shared secret is embedded in the plugin source.
  *
  * Token storage is handled by the plugin's data.json via callbacks.
  */
@@ -26,8 +26,9 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
  * on GitHub Pages (`docs/oauth-redirect.html` in this repo, served from the
  * `/docs` folder on the default branch). Google delivers the `code` and
  * `state` params via the query string (`window.location.search`) on that
- * page; the user copies the code and pastes it into the plugin's settings
- * pane to complete the exchange. Confirmed viable in the Task 0b spike
+ * page; the user either uses the deep link or copies the full callback URL
+ * and pastes it into the plugin's settings pane to complete the exchange.
+ * Confirmed viable in the Task 0b spike
  * (see /tmp/crew-handoff/t_1cfed21d/SPIKE_task0b_weblient_redirect.md).
  *
  * The exact URI here must match, character-for-character, an "Authorized
@@ -120,6 +121,7 @@ export function buildAuthUrl(params: AuthUrlParams): string {
 /** Parameters needed to exchange an authorization code for tokens. */
 export interface TokenExchangeParams {
 	clientId: string;
+	clientSecret?: string;
 	code: string;
 	codeVerifier: string;
 	redirectUri?: string;
@@ -141,6 +143,9 @@ export async function exchangeCodeForTokens(
 		grant_type: 'authorization_code',
 		redirect_uri: redirectUri,
 	});
+	if (params.clientSecret) {
+		body.set('client_secret', params.clientSecret);
+	}
 
 	const resp = await requestUrl({
 		url: TOKEN_ENDPOINT,
@@ -161,6 +166,7 @@ export async function exchangeCodeForTokens(
  */
 export async function refreshAccessToken(
 	clientId: string,
+	clientSecret: string | undefined,
 	refreshToken: string
 ): Promise<OAuthTokens> {
 	const body = new URLSearchParams({
@@ -168,6 +174,9 @@ export async function refreshAccessToken(
 		refresh_token: refreshToken,
 		grant_type: 'refresh_token',
 	});
+	if (clientSecret) {
+		body.set('client_secret', clientSecret);
+	}
 
 	const resp = await requestUrl({
 		url: TOKEN_ENDPOINT,
@@ -203,6 +212,8 @@ export function isTokenExpired(tokens: OAuthTokens): boolean {
 export interface CompleteAuthorizationContext {
 	/** The OAuth client ID configured by the user. */
 	clientId: string;
+	/** The OAuth client secret configured by the user. */
+	clientSecret?: string;
 	/**
 	 * The `state` value generated when the authorization URL was built
 	 * (stored by the caller when the "Authorize" flow was started). `null`
@@ -272,6 +283,7 @@ export async function completeAuthorization(
 	try {
 		const tokens = await exchangeCodeForTokens({
 			clientId: ctx.clientId,
+			clientSecret: ctx.clientSecret,
 			code,
 			codeVerifier: ctx.pendingCodeVerifier,
 		});

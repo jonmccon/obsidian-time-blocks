@@ -162,6 +162,33 @@ describe('exchangeCodeForTokens / token endpoint error handling', () => {
 		vi.restoreAllMocks();
 	});
 
+	it('includes client_secret when provided', async () => {
+		const obsidianModule = await import('obsidian');
+		const requestUrlSpy = vi.spyOn(obsidianModule, 'requestUrl').mockResolvedValueOnce({
+			json: {
+				access_token: 'tok-123',
+				expires_in: 3600,
+				token_type: 'Bearer',
+				scope: CALENDAR_SCOPES,
+			},
+			status: 200,
+			text: '',
+			arrayBuffer: new ArrayBuffer(0),
+			headers: {},
+		});
+
+		const { exchangeCodeForTokens } = await import('../../src/gcal/auth');
+		await exchangeCodeForTokens({
+			clientId: 'test-client-id',
+			clientSecret: 'test-client-secret',
+			code: 'code-123',
+			codeVerifier: 'verifier-123',
+		});
+
+		const request = requestUrlSpy.mock.calls[0][0];
+		expect(request.body).toContain('client_secret=test-client-secret');
+	});
+
 	it('throws when the token endpoint returns an error field', async () => {
 		const obsidianModule = await import('obsidian');
 		vi.spyOn(obsidianModule, 'requestUrl').mockResolvedValueOnce({

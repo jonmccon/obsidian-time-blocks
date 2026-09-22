@@ -128,27 +128,28 @@
 <body>
   <h1>Time Blocks — Google Calendar authorization</h1>
   <p class="muted">
-    This page hands your authorization code back to you so you can paste it
-    into Obsidian. It does not send your data anywhere — everything here
-    happens locally in your browser.
+    This page helps you hand the authorization result back to Obsidian. Your
+    browser necessarily sends this URL (including query parameters) to GitHub
+    Pages to load this page, and this page itself does not send that data
+    anywhere else.
   </p>
 
   <div id="successState" class="card hidden">
-    <p>Authorization succeeded. Copy the code below and paste it into the
+    <p>Authorization succeeded. Copy the callback URL below and paste it into the
       <strong>Time Blocks</strong> plugin's settings pane in Obsidian to
       finish connecting Google Calendar.</p>
 
-    <label for="codeField">Authorization code</label>
+    <label for="codeField">Authorization callback URL</label>
     <input id="codeField" type="text" readonly />
-    <button id="copyBtn" type="button">Copy code</button>
+    <button id="copyBtn" type="button">Copy callback URL</button>
     <a id="obsidianBtn" href="#" class="button-link" style="display: inline-block; margin-left: 8px;">Open in Obsidian</a>
     <span id="copyStatus" role="status"></span>
 
     <ol>
-      <li>Click <strong>Copy code</strong> above (or select and copy the text manually).</li>
+      <li>Click <strong>Copy callback URL</strong> above (or select and copy the text manually).</li>
       <li>Switch back to Obsidian.</li>
       <li>Open <strong>Settings → Time Blocks → Google Calendar</strong>.</li>
-      <li>Paste the code into the "Authorization code" field and confirm.</li>
+      <li>Paste it into the "Authorization code" field and confirm.</li>
     </ol>
 
     <p class="muted">
@@ -159,7 +160,7 @@
       steps above instead; they always work.
     </p>
 
-    <p class="muted">You can safely close this tab once you've copied the code.</p>
+    <p class="muted">You can safely close this tab once you've copied the callback URL.</p>
   </div>
 
   <div id="errorState" class="card hidden">
@@ -190,8 +191,9 @@
       if (code) {
         successEl.classList.remove("hidden");
 
+        var callbackUrl = window.location.href;
         var codeField = document.getElementById("codeField");
-        codeField.value = code;
+        codeField.value = callbackUrl;
 
         var copyBtn = document.getElementById("copyBtn");
         var copyStatus = document.getElementById("copyStatus");
@@ -218,7 +220,7 @@
 
         copyBtn.addEventListener("click", function () {
           if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(code).then(
+            navigator.clipboard.writeText(callbackUrl).then(
               function () {
                 copyStatus.textContent = "Copied!";
                 setTimeout(function () { copyStatus.textContent = ""; }, 2500);

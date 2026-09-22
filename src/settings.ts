@@ -105,6 +105,8 @@ export interface TimeBlockSettings {
 
 	/** Google Cloud Console OAuth 2.0 client ID (provided by the user). */
 	oauthClientId: string;
+	/** Google Cloud Console OAuth 2.0 client secret (provided by the user). */
+	oauthClientSecret: string;
 
 	// ── OAuth setup wizard (self-reported step checkboxes) ──────────────────
 	// These track the user's progress through the one-time Google Cloud
@@ -156,6 +158,7 @@ export const DEFAULT_SETTINGS: TimeBlockSettings = {
 	customTaskQuery: '',
 	enableTwoWaySync: false,
 	oauthClientId: '',
+	oauthClientSecret: '',
 	oauthSetupProjectCreated: false,
 	oauthSetupApiEnabled: false,
 	oauthSetupRedirectConfigured: false,
@@ -189,6 +192,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 		const { settings } = this.plugin;
 		await completeAuthorization(code, state, {
 			clientId: settings.oauthClientId,
+			clientSecret: settings.oauthClientSecret,
 			pendingState: this.pendingState,
 			pendingCodeVerifier: this.pendingCodeVerifier,
 			onSuccess: async (tokens) => {
@@ -482,7 +486,8 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						desc:
 							'Open Google Cloud Console and create a new project (or pick an ' +
 							'existing one you want to use for this plugin).',
-						visible: () => settings.enableTwoWaySync,
+						visible: () =>
+							settings.enableTwoWaySync && settings.oauthTokens === null,
 						render: (setting: Setting) => {
 							setting
 								.addButton((btn) =>
@@ -511,7 +516,9 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							'With that project selected, enable the Google Calendar API ' +
 							'for it.',
 						visible: () =>
-							settings.enableTwoWaySync && settings.oauthSetupProjectCreated,
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							settings.oauthSetupProjectCreated,
 						render: (setting: Setting) => {
 							setting
 								.addButton((btn) =>
@@ -556,7 +563,9 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							el.createEl('code', { text: REDIRECT_URI });
 						}),
 						visible: () =>
-							settings.enableTwoWaySync && settings.oauthSetupApiEnabled,
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							settings.oauthSetupApiEnabled,
 						render: (setting: Setting) => {
 							setting
 								.addButton((btn) =>
@@ -590,20 +599,41 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 								);
 						},
 					},
-					// Step 4: paste the client ID from that credential.
+					// Step 4: paste the client ID and secret from that credential.
 					{
-						name: 'Step 4: Paste your Client ID',
+						name: 'Step 4: Paste your Client ID and secret',
 						desc:
-							'The OAuth 2.0 client ID from the Web application credential you ' +
-							'just created in Google Cloud Console.',
-						control: {
-							type: 'text',
-							key: 'oauthClientId',
-							placeholder: 'Your client ID',
-							defaultValue: DEFAULT_SETTINGS.oauthClientId,
+							'Paste the client ID and client secret from the Web application ' +
+							'credential you just created in Google Cloud Console. The secret ' +
+							"is stored only in this vault's local plugin data.",
+						render: (setting: Setting) => {
+							setting
+								.addText((text) =>
+									text
+										.setPlaceholder('Your client ID')
+										.setValue(settings.oauthClientId)
+										.onChange(async (value) => {
+											settings.oauthClientId = value.trim();
+											await this.plugin.saveSettings();
+											this.refreshDomState();
+										})
+								)
+								.addText((text) => {
+									text
+										.setPlaceholder('Your client secret')
+										.setValue(settings.oauthClientSecret)
+										.onChange(async (value) => {
+											settings.oauthClientSecret = value.trim();
+											await this.plugin.saveSettings();
+											this.refreshDomState();
+										});
+									text.inputEl.type = 'password';
+								});
 						},
 						visible: () =>
-							settings.enableTwoWaySync && settings.oauthSetupRedirectConfigured,
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							settings.oauthSetupRedirectConfigured,
 					},
 					// Step 5: authorize. Both the "Open in Obsidian" deep-link hand-back
 					// and the manual code paste are equally valid paths — shown together
@@ -616,7 +646,8 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
-							!!settings.oauthClientId,
+							!!settings.oauthClientId &&
+							!!settings.oauthClientSecret,
 						render: (setting: Setting) => {
 							setting.addButton((btn) =>
 								btn
@@ -652,19 +683,19 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 						desc:
 							'After authorizing, click "Open in Obsidian" on the redirect page, or ' +
 							'paste the full redirect URL from your browser address bar ' +
-							'(e.g. https://…/oauth-redirect.html?code=…&state=…) or just the code, below. ' +
-							'Pasting the full URL allows the plugin to verify the state ' +
-							'parameter and protect against cross-site request forgery (CSRF). ' +
-							'Both paths finish the same sign-in.',
+							'(e.g. https://…/oauth-redirect.html?code=…&state=…). ' +
+							'The full URL is required so the plugin can verify the state ' +
+							'parameter and protect against cross-site request forgery (CSRF).',
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
-							!!settings.oauthClientId,
+							!!settings.oauthClientId &&
+							!!settings.oauthClientSecret,
 						render: (setting: Setting) => {
 							setting
 								.addText((text) =>
 									text
-										.setPlaceholder('https://…/oauth-redirect.html?code=… or just the code')
+										.setPlaceholder('https://…/oauth-redirect.html?code=…&state=…')
 										.onChange((value) => {
 											authCodeInput = value;
 										})
@@ -704,6 +735,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 
 											await completeAuthorization(code, receivedState, {
 												clientId: settings.oauthClientId,
+												clientSecret: settings.oauthClientSecret,
 												pendingState: this.pendingState,
 												pendingCodeVerifier: this.pendingCodeVerifier,
 												onSuccess: async (tokens) => {
@@ -771,6 +803,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 														await this.plugin.saveSettings();
 													},
 													clientId: settings.oauthClientId,
+													clientSecret: settings.oauthClientSecret,
 												});
 												const writable = cals.filter(
 													(c) =>
