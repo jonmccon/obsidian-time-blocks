@@ -29,6 +29,9 @@ export default class TimeBlockPlugin extends Plugin {
 	eventMappings: EventMapping[] = [];
 	/** Guard to prevent concurrent sync operations. */
 	private syncing = false;
+	/** Reference to the settings tab so the protocol handler can complete
+	 *  an in-progress PKCE flow started from that pane. */
+	private settingTab: TimeBlockSettingTab | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -88,7 +91,30 @@ export default class TimeBlockPlugin extends Plugin {
 		});
 
 		// Settings tab
-		this.addSettingTab(new TimeBlockSettingTab(this.app, this));
+		this.settingTab = new TimeBlockSettingTab(this.app, this);
+		this.addSettingTab(this.settingTab);
+
+		// "Open in Obsidian" bonus fast-path for the OAuth redirect page
+		// (docs/oauth-redirect.html): a best-effort convenience, NOT a
+		// Google-facing redirect_uri. Google only ever redirects to the
+		// real https://…/oauth-redirect.html page; that static page then
+		// offers this obsidian:// deep link as an extra button. If
+		// Obsidian isn't running/registered as a handler the OS simply
+		// won't deliver it — the manual copy/paste flow on that page
+		// remains the fully-functional primary path regardless.
+		this.registerObsidianProtocolHandler('gcal-callback', (params) => {
+			const code = params.code;
+			const state = typeof params.state === 'string' ? params.state : null;
+			if (!code) {
+				new Notice('Time blocks: authorization link was missing a code.');
+				return;
+			}
+			if (!this.settingTab) {
+				this.settingTab = new TimeBlockSettingTab(this.app, this);
+				this.addSettingTab(this.settingTab);
+			}
+			void this.settingTab.completePendingAuthorization(code, state);
+		});
 	}
 
 	onunload(): void {
@@ -133,6 +159,7 @@ export default class TimeBlockPlugin extends Plugin {
 				await this.saveSettings();
 			},
 			clientId: this.settings.oauthClientId,
+			clientSecret: this.settings.oauthClientSecret,
 		};
 	}
 

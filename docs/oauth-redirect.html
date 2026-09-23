@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<!--
+  Time Blocks — Google OAuth redirect landing page (Option D).
+
+  This is a pure static HTML+JS page: no backend, no build step, no
+  external JS dependencies. It exists purely so Google's OAuth 2.0
+  "Web application" client type has a real https:// redirect_uri to send
+  the user back to after they grant (or deny) calendar access. Google
+  delivers `code` (and `state`, or `error` on denial) via the URL query
+  string, which this page reads with window.location.search and displays
+  so the user can copy it back into the Time Blocks plugin's settings pane.
+
+  INFRA NOTE FOR jonmccon (manual action required, not done by this agent):
+  For this page to be reachable at
+  https://jonmccon.github.io/obsidian-time-blocks/oauth-redirect.html
+  GitHub Pages must be enabled on the obsidian-time-blocks repo:
+    Settings -> Pages -> Build and deployment -> Source: "Deploy from a
+    branch" -> Branch: the default branch, folder "/docs".
+  This is a repo-admin action in GitHub's web UI. The implementing agent
+  did not attempt this and must not attempt it via gh/gh api or any other
+  automated call against repo/Pages settings — it is explicitly out of
+  scope and left for jonmccon to do by hand.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="robots" content="noindex" />
+<meta name="referrer" content="no-referrer" />
+<title>Time Blocks — Google Calendar authorization</title>
+<style>
+  :root {
+    color-scheme: light dark;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 640px;
+    margin: 48px auto;
+    padding: 0 20px;
+    line-height: 1.5;
+    color: #1a1a1a;
+    background: #f7f7f8;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e6e6; background: #1a1a1a; }
+    .card { background: #242424; border-color: #3a3a3a; }
+    input[type="text"] { background: #1a1a1a; color: #e6e6e6; border-color: #444; }
+    .muted { color: #a0a0a0; }
+  }
+  h1 {
+    font-size: 1.4rem;
+    margin-bottom: 0.25em;
+  }
+  .card {
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 24px;
+    margin-top: 24px;
+  }
+  .muted {
+    color: #666;
+    font-size: 0.92rem;
+  }
+  label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+  }
+  input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.95rem;
+    padding: 10px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    margin-bottom: 12px;
+  }
+  button {
+    font-size: 0.95rem;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid #4a63e0;
+    background: #4a63e0;
+    color: #fff;
+    cursor: pointer;
+  }
+  button:hover { background: #3b52c4; }
+  button:active { transform: translateY(1px); }
+  .button-link {
+    display: inline-block;
+    font-size: 0.95rem;
+    font-family: inherit;
+    padding: 10px 16px;
+    border-radius: 6px;
+    border: 1px solid #4a63e0;
+    background: #4a63e0;
+    color: #fff;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .button-link:hover { background: #3b52c4; }
+  .button-link:active { transform: translateY(1px); }
+  #copyStatus {
+    margin-left: 10px;
+    font-size: 0.88rem;
+  }
+  .error-box {
+    border-left: 4px solid #d33;
+    background: #fdecec;
+    padding: 14px 16px;
+    border-radius: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .error-box { background: #3a1f1f; }
+  }
+  ol { padding-left: 1.3em; }
+  code {
+    background: rgba(127,127,127,0.15);
+    padding: 2px 5px;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <h1>Time Blocks — Google Calendar authorization</h1>
+  <p class="muted">
+    This page helps you hand the authorization result back to Obsidian. Your
+    browser necessarily sends this URL (including query parameters) to GitHub
+    Pages to load this page, and this page itself does not send that data
+    anywhere else.
+  </p>
+
+  <div id="successState" class="card hidden">
+    <p>Authorization succeeded. Copy the callback URL below and paste it into the
+      <strong>Time Blocks</strong> plugin's settings pane in Obsidian to
+      finish connecting Google Calendar.</p>
+
+    <label for="codeField">Authorization callback URL</label>
+    <input id="codeField" type="text" readonly />
+    <button id="copyBtn" type="button">Copy callback URL</button>
+    <a id="obsidianBtn" class="button-link" style="display: inline-block; margin-left: 8px;">Open in Obsidian</a>
+    <span id="copyStatus" role="status"></span>
+
+    <ol>
+      <li>Click <strong>Copy callback URL</strong> above (or select and copy the text manually).</li>
+      <li>Switch back to Obsidian.</li>
+      <li>Open <strong>Settings → Time Blocks → Google Calendar</strong>.</li>
+      <li>Paste it into the "Authorization code" field and confirm.</li>
+    </ol>
+
+    <p class="muted">
+      Prefer a shortcut? <strong>Open in Obsidian</strong> attempts to hand the
+      code straight back to the plugin via an <code>obsidian://</code> link —
+      this only works if Obsidian is installed and running, and is not
+      required. If nothing happens when you click it, use the copy/paste
+      steps above instead; they always work.
+    </p>
+
+    <p class="muted">You can safely close this tab once you've copied the callback URL.</p>
+  </div>
+
+  <div id="errorState" class="card hidden">
+    <div class="error-box">
+      <p><strong>Authorization did not complete.</strong></p>
+      <p id="errorDetail" class="muted"></p>
+    </div>
+    <p class="muted">
+      Go back to Obsidian and try connecting Google Calendar again from
+      <strong>Settings → Time Blocks → Google Calendar</strong>. If this
+      keeps happening, check that the OAuth client configured in Google
+      Cloud Console matches the plugin's settings.
+    </p>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var params = new URLSearchParams(window.location.search);
+      var code = params.get("code");
+      var error = params.get("error");
+      var errorDescription = params.get("error_description");
+
+      var successEl = document.getElementById("successState");
+      var errorEl = document.getElementById("errorState");
+
+      if (code) {
+        successEl.classList.remove("hidden");
+
+        var callbackUrl = window.location.href;
+        var codeField = document.getElementById("codeField");
+        codeField.value = callbackUrl;
+
+        var copyBtn = document.getElementById("copyBtn");
+        var copyStatus = document.getElementById("copyStatus");
+
+        // "Open in Obsidian" bonus fast-path (best-effort, not required).
+        // This is a plain OS-level deep link — Google never sees or
+        // validates this string, it only ever redirects to this real
+        // https:// page. The browser hands obsidian:// off to the OS,
+        // which routes it to Obsidian's registerObsidianProtocolHandler
+        // IF Obsidian is installed, running, and registered as the
+        // handler for that scheme. If any of that isn't true, clicking
+        // this link simply does nothing observable here — the copy/paste
+        // flow above remains fully functional either way.
+        var obsidianBtn = document.getElementById("obsidianBtn");
+        var state = params.get("state");
+        var deepLinkParams = "code=" + encodeURIComponent(code);
+        if (state) {
+          deepLinkParams += "&state=" + encodeURIComponent(state);
+        }
+        obsidianBtn.setAttribute(
+          "href",
+          "obsidian://gcal-callback?" + deepLinkParams
+        );
+
+        copyBtn.addEventListener("click", function () {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(callbackUrl).then(
+              function () {
+                copyStatus.textContent = "Copied!";
+                setTimeout(function () { copyStatus.textContent = ""; }, 2500);
+              },
+              function () {
+                fallbackCopy();
+              }
+            );
+          } else {
+            fallbackCopy();
+          }
+        });
+
+        function fallbackCopy() {
+          // Fallback for browsers/contexts without Clipboard API access
+          // (e.g. clipboard permission denied, or a non-secure context).
+          try {
+            codeField.focus();
+            codeField.select();
+            var ok = document.execCommand("copy");
+            copyStatus.textContent = ok
+              ? "Copied!"
+              : "Couldn't copy automatically — please select and copy manually.";
+          } catch (e) {
+            copyStatus.textContent =
+              "Clipboard access denied — please select and copy the code manually.";
+          }
+          setTimeout(function () { copyStatus.textContent = ""; }, 4000);
+        }
+      } else {
+        // No code present: either the user navigated here directly, or
+        // Google returned an `error` param (e.g. access_denied).
+        errorEl.classList.remove("hidden");
+        var detailEl = document.getElementById("errorDetail");
+        if (error) {
+          detailEl.textContent = errorDescription
+            ? error + " — " + errorDescription
+            : error;
+        } else {
+          detailEl.textContent =
+            "No authorization code was found in the URL. This page is only " +
+            "meant to be reached as a redirect from Google's consent screen.";
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

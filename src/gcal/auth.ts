@@ -1,14 +1,14 @@
 /**
  * OAuth 2.0 authentication for the Google Calendar API.
  *
- * Uses the Authorization-Code flow with PKCE (Proof Key for Code Exchange)
- * so there is no client secret embedded in the plugin source.  The user
- * supplies their own Google Cloud Console client ID.
+ * Uses the Authorization-Code flow with PKCE (Proof Key for Code Exchange).
+ * The user supplies their own Google Cloud Console client ID and client
+ * secret; no shared secret is embedded in the plugin source.
  *
  * Token storage is handled by the plugin's data.json via callbacks.
  */
 
-import { requestUrl } from 'obsidian';
+import { Notice, requestUrl } from 'obsidian';
 import type { OAuthTokens, TokenEndpointResponse } from './types';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -19,15 +19,23 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 /**
  * The OAuth redirect URI.
  *
- * For Obsidian plugins, we use the loopback address `http://127.0.0.1`.
- * Google treats loopback redirects specially — it allows any port and ignores
- * the path component, so the actual redirect may go to e.g.
- * `http://127.0.0.1:PORT/callback`.  The value registered in Google Cloud
- * Console must match this base URI.
+ * Option D: this plugin registers a "Web application" OAuth client in
+ * Google Cloud Console (not "Desktop app"/native), which requires a real
+ * `https://` redirect URI — loopback addresses are not accepted for that
+ * client type. The redirect target is a static, backend-free page hosted
+ * on GitHub Pages (`docs/oauth-redirect.html` in this repo, served from the
+ * `/docs` folder on the default branch). Google delivers the `code` and
+ * `state` params via the query string (`window.location.search`) on that
+ * page; the user either uses the deep link or copies the full callback URL
+ * and pastes it into the plugin's settings pane to complete the exchange.
+ * Confirmed viable in the Task 0b spike
+ * (see /tmp/crew-handoff/t_1cfed21d/SPIKE_task0b_weblient_redirect.md).
  *
- * @see https://developers.google.com/identity/protocols/oauth2/native-app#redirect-uri_loopback
+ * The exact URI here must match, character-for-character, an "Authorized
+ * redirect URI" entry on the Web-application OAuth client in Google Cloud
+ * Console.
  */
-export const REDIRECT_URI = 'http://127.0.0.1';
+export const REDIRECT_URI = 'https://jonmccon.github.io/obsidian-time-blocks/oauth-redirect.html';
 
 /** Scopes required for read + write calendar access. */
 export const CALENDAR_SCOPES = 'https://www.googleapis.com/auth/calendar';
@@ -113,6 +121,7 @@ export function buildAuthUrl(params: AuthUrlParams): string {
 /** Parameters needed to exchange an authorization code for tokens. */
 export interface TokenExchangeParams {
 	clientId: string;
+	clientSecret?: string;
 	code: string;
 	codeVerifier: string;
 	redirectUri?: string;
@@ -134,6 +143,9 @@ export async function exchangeCodeForTokens(
 		grant_type: 'authorization_code',
 		redirect_uri: redirectUri,
 	});
+	if (params.clientSecret) {
+		body.set('client_secret', params.clientSecret);
+	}
 
 	const resp = await requestUrl({
 		url: TOKEN_ENDPOINT,
@@ -154,6 +166,7 @@ export async function exchangeCodeForTokens(
  */
 export async function refreshAccessToken(
 	clientId: string,
+	clientSecret: string | undefined,
 	refreshToken: string
 ): Promise<OAuthTokens> {
 	const body = new URLSearchParams({
@@ -161,6 +174,9 @@ export async function refreshAccessToken(
 		refresh_token: refreshToken,
 		grant_type: 'refresh_token',
 	});
+	if (clientSecret) {
+		body.set('client_secret', clientSecret);
+	}
 
 	const resp = await requestUrl({
 		url: TOKEN_ENDPOINT,
@@ -181,6 +197,102 @@ export async function refreshAccessToken(
 /** Returns true when the stored access token has expired (or will within 60 s). */
 export function isTokenExpired(tokens: OAuthTokens): boolean {
 	return Date.now() >= tokens.expires_at - 60_000;
+}
+
+// ── Shared authorization-completion flow ─────────────────────────────────────
+
+/**
+ * Context needed by `completeAuthorization` to finish an in-progress PKCE
+ * flow, regardless of *how* the code+state pair was obtained (manual paste
+ * into the settings pane, or the `obsidian://gcal-callback` protocol
+ * handler). Kept intentionally free of any Obsidian `Plugin`/`SettingTab`
+ * coupling so the control-flow logic (in particular the CSRF guard) lives in
+ * exactly one place and behaves identically from both callers.
+ */
+export interface CompleteAuthorizationContext {
+	/** The OAuth client ID configured by the user. */
+	clientId: string;
+	/** The OAuth client secret configured by the user. */
+	clientSecret?: string;
+	/**
+	 * The `state` value generated when the authorization URL was built
+	 * (stored by the caller when the "Authorize" flow was started). `null`
+	 * if no flow is currently in progress.
+	 */
+	pendingState: string | null;
+	/**
+	 * The PKCE code verifier generated when the authorization URL was
+	 * built. `null` if no flow is currently in progress.
+	 */
+	pendingCodeVerifier: string | null;
+	/**
+	 * Called with the freshly obtained tokens once the exchange succeeds.
+	 * Typically persists them into plugin settings.
+	 */
+	onSuccess: (tokens: OAuthTokens) => void | Promise<void>;
+	/**
+	 * Called after a successful exchange to clear any in-progress-auth
+	 * state (pending code verifier / state / auth URL) so a stale flow
+	 * cannot be reused.
+	 */
+	resetPendingAuth: () => void;
+	/**
+	 * Surfaces a message to the user. Defaults to `new Notice(message)`
+	 * when omitted (tests may override this to assert on messages without
+	 * depending on the Obsidian Notice UI).
+	 */
+	notify?: (message: string) => void;
+}
+
+/**
+ * Completes a Google OAuth 2.0 authorization-code flow: validates the CSRF
+ * `state` guard, exchanges the code for tokens, and reports the outcome via
+ * `ctx.notify` (defaulting to a `Notice`).
+ *
+ * This is the single shared implementation used by both the manual
+ * code-paste flow (settings pane) and the `obsidian://gcal-callback`
+ * protocol-handler fast path — the CSRF guard and error/success messaging
+ * must behave identically from either entry point.
+ */
+export async function completeAuthorization(
+	code: string,
+	state: string | null,
+	ctx: CompleteAuthorizationContext
+): Promise<void> {
+	const notify = ctx.notify ?? ((message: string) => { new Notice(message); });
+
+	if (!ctx.pendingCodeVerifier) {
+		notify('Time blocks: click authorize first.');
+		return;
+	}
+
+	// Validate state to guard against CSRF. Compare by strict equality
+	// (covers both being null, i.e. no flow ever captured a state) — do NOT
+	// special-case "no state received" as an automatic pass: a flow that
+	// generated a state must always see that same state pass back through,
+	// otherwise a completion path that only forwards the bare code (e.g.
+	// "Copy code" without state) could always bypass the CSRF check.
+	if (ctx.pendingState !== state) {
+		notify(
+			'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
+		);
+		ctx.resetPendingAuth();
+		return;
+	}
+
+	try {
+		const tokens = await exchangeCodeForTokens({
+			clientId: ctx.clientId,
+			clientSecret: ctx.clientSecret,
+			code,
+			codeVerifier: ctx.pendingCodeVerifier,
+		});
+		await ctx.onSuccess(tokens);
+		ctx.resetPendingAuth();
+		notify('Time blocks: signed in to calendar.');
+	} catch (err) {
+		notify(`Time blocks: authentication failed: ${String(err)}`);
+	}
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────

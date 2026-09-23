@@ -1,13 +1,20 @@
-import { App, Notice, PluginSettingTab, Setting, requestUrl } from 'obsidian';
+import {
+	App,
+	Notice,
+	PluginSettingTab,
+	Setting,
+	requestUrl,
+} from 'obsidian';
 import type { SettingDefinitionItem, SettingGroupItem } from 'obsidian';
 import TimeBlockPlugin from './main';
 import {
 	buildAuthUrl,
 	CALENDAR_SCOPES,
+	completeAuthorization,
 	generateCodeChallenge,
 	generateCodeVerifier,
 	generateState,
-	exchangeCodeForTokens,
+	REDIRECT_URI,
 } from './gcal/auth';
 import { listCalendars } from './gcal/calendarApi';
 import type { ConflictStrategy, OAuthTokens } from './gcal/types';
@@ -97,6 +104,28 @@ export interface TimeBlockSettings {
 
 	/** Google Cloud Console OAuth 2.0 client ID (provided by the user). */
 	oauthClientId: string;
+	/** Google Cloud Console OAuth 2.0 client secret (provided by the user). */
+	oauthClientSecret: string;
+
+	// ── OAuth setup wizard (self-reported step checkboxes) ──────────────────
+	// These track the user's progress through the one-time Google Cloud
+	// Console setup (creating a project, enabling the Calendar API, and
+	// creating a Web-application OAuth client with the fixed redirect URI).
+	// They gate which wizard step is shown next; they are NOT re-validated
+	// against Google in any way — purely self-reported checkboxes.
+
+	/** Step 1: user has created a Google Cloud project. */
+	oauthSetupProjectCreated: boolean;
+
+	/** Step 2: user has enabled the Calendar API on that project. */
+	oauthSetupApiEnabled: boolean;
+
+	/**
+	 * Step 3: user has created a "Web application" OAuth client and added
+	 * the plugin's fixed GitHub Pages redirect URI to its "Authorized
+	 * redirect URIs" list.
+	 */
+	oauthSetupRedirectConfigured: boolean;
 
 	/** Stored OAuth tokens (access + refresh). `null` when not authenticated. */
 	oauthTokens: OAuthTokens | null;
@@ -128,6 +157,10 @@ export const DEFAULT_SETTINGS: TimeBlockSettings = {
 	customTaskQuery: '',
 	enableTwoWaySync: false,
 	oauthClientId: '',
+	oauthClientSecret: '',
+	oauthSetupProjectCreated: false,
+	oauthSetupApiEnabled: false,
+	oauthSetupRedirectConfigured: false,
 	oauthTokens: null,
 	syncCalendarId: 'primary',
 	conflictStrategy: 'ask',
@@ -144,6 +177,34 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 	constructor(app: App, plugin: TimeBlockPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	/**
+	 * Completes an in-progress PKCE authorization flow using the code/state
+	 * pair delivered by the `obsidian://gcal-callback` protocol handler
+	 * (see main.ts). Reuses the exact same shared `completeAuthorization`
+	 * logic — including the CSRF state guard — as the manual code-paste
+	 * submit handler below, so behavior is identical regardless of which
+	 * path delivered the code.
+	 */
+	async completePendingAuthorization(code: string, state: string | null): Promise<void> {
+		const { settings } = this.plugin;
+		await completeAuthorization(code, state, {
+			clientId: settings.oauthClientId,
+			clientSecret: settings.oauthClientSecret,
+			pendingState: this.pendingState,
+			pendingCodeVerifier: this.pendingCodeVerifier,
+			onSuccess: async (tokens) => {
+				settings.oauthTokens = tokens;
+				await this.plugin.saveSettings();
+			},
+			resetPendingAuth: () => {
+				this.pendingCodeVerifier = null;
+				this.pendingState = null;
+				this.pendingAuthUrl = null;
+			},
+		});
+		this.refreshDomState();
 	}
 
 	override getSettingDefinitions(): SettingDefinitionItem[] {
@@ -417,29 +478,190 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 							defaultValue: DEFAULT_SETTINGS.enableTwoWaySync,
 						},
 					},
+					// ── OAuth setup wizard: 5 steps ───────────────────────────────
+					// Step 1: create a Google Cloud project.
 					{
-						name: 'Calendar API client ID',
+						name: 'Step 1: Create a Google Cloud project',
 						desc:
-							'Your cloud console OAuth 2.0 client ID. ' +
-							'Create one at console.cloud.google.com with the calendar API enabled.',
-						control: {
-							type: 'text',
-							key: 'oauthClientId',
-							placeholder: 'Your client ID',
-							defaultValue: DEFAULT_SETTINGS.oauthClientId,
-						},
-						visible: () => settings.enableTwoWaySync,
-					},
-					// OAuth sign-in UI (shown when sync enabled, no tokens, client ID present)
-					{
-						name: 'Calendar sign-in',
-						desc:
-							'Click "Authorize" to open the sign-in page in your browser. ' +
-							'After granting access, paste the full redirect URL (or just the code) below.',
+							'Open Google Cloud Console and create a new project (or pick an ' +
+							'existing one you want to use for this plugin).',
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
-							!!settings.oauthClientId,
+							!settings.oauthSetupProjectCreated,
+						render: (setting: Setting) => {
+							setting
+								.addButton((btn) =>
+									btn
+										.setButtonText('Open google cloud console')
+										.onClick(() => {
+											window.open('https://console.cloud.google.com/projectcreate');
+										})
+								)
+								.addToggle((toggle) =>
+									toggle
+										.setTooltip("I've created a project")
+										.setValue(settings.oauthSetupProjectCreated)
+										.onChange(async (value) => {
+											settings.oauthSetupProjectCreated = value;
+											await this.plugin.saveSettings();
+											this.refreshDomState();
+										})
+								);
+						},
+					},
+					// Step 2: enable the Calendar API on that project.
+					{
+						name: 'Step 2: Enable the Calendar API',
+						desc:
+							'With that project selected, enable the Google Calendar API ' +
+							'for it.',
+						visible: () =>
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							settings.oauthSetupProjectCreated &&
+							!settings.oauthSetupApiEnabled,
+						render: (setting: Setting) => {
+							setting
+								.addButton((btn) =>
+									btn
+										.setButtonText('Enable calendar API')
+										.onClick(() => {
+											window.open(
+												'https://console.cloud.google.com/apis/library/calendar-json.googleapis.com'
+											);
+										})
+								)
+								.addToggle((toggle) =>
+									toggle
+										.setTooltip("I've enabled the calendar API")
+										.setValue(settings.oauthSetupApiEnabled)
+										.onChange(async (value) => {
+											settings.oauthSetupApiEnabled = value;
+											await this.plugin.saveSettings();
+											this.refreshDomState();
+										})
+								);
+						},
+					},
+					// Step 3: create OAuth credentials (Web application client type)
+					// and register the plugin's fixed redirect URI. This exact URL
+					// (https://jonmccon.github.io/obsidian-time-blocks/oauth-redirect.html)
+					// must be added once, by hand, as an "Authorized redirect URI" on
+					// the Web-application OAuth client in Google Cloud Console.
+					{
+						name: 'Step 3: Create OAuth credentials',
+						desc: (() => {
+							const fragment = document.createDocumentFragment();
+							const applicationType = document.createElement('strong');
+							const redirectUri = document.createElement('code');
+
+							applicationType.textContent = 'Web application';
+							redirectUri.textContent = REDIRECT_URI;
+
+							fragment.append('Create an OAuth client ID and choose ');
+							fragment.append(applicationType);
+							fragment.append(
+								' as the application type (not "Desktop app" — Web application ' +
+									'client types are required for the https:// redirect URI below). ' +
+									'Then copy this exact URL into the redirect URIs field:'
+							);
+							fragment.append(document.createElement('br'));
+							fragment.append(redirectUri);
+
+							return fragment;
+						})(),
+						visible: () =>
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							settings.oauthSetupApiEnabled &&
+							!settings.oauthSetupRedirectConfigured,
+						render: (setting: Setting) => {
+							setting
+								.addButton((btn) =>
+									btn.setButtonText('Copy redirect address').onClick(async () => {
+										try {
+											await navigator.clipboard.writeText(REDIRECT_URI);
+											new Notice('Time blocks: redirect address copied.');
+										} catch {
+											new Notice(
+												`Time blocks: could not copy automatically — copy this manually: ${REDIRECT_URI}`
+											);
+										}
+									})
+								)
+								.addButton((btn) =>
+									btn
+										.setButtonText('Open authorization credentials page')
+										.onClick(() => {
+											window.open('https://console.cloud.google.com/apis/credentials');
+										})
+								)
+								.addToggle((toggle) =>
+									toggle
+										.setTooltip("I've created a web application client and added the redirect address")
+										.setValue(settings.oauthSetupRedirectConfigured)
+										.onChange(async (value) => {
+											settings.oauthSetupRedirectConfigured = value;
+											await this.plugin.saveSettings();
+											this.refreshDomState();
+										})
+								);
+						},
+					},
+					// Step 4: paste the client ID and secret from that credential.
+					{
+						name: 'Step 4: Paste your Client ID and secret',
+						desc:
+							'Paste the client ID and client secret from the Web application ' +
+							'credential you just created in Google Cloud Console. The secret ' +
+							"is stored only in this vault's local plugin data.",
+						render: (setting: Setting) => {
+							setting
+								.addText((text) =>
+									text
+										.setPlaceholder('Your client ID')
+										.setValue(settings.oauthClientId)
+										.onChange(async (value) => {
+											settings.oauthClientId = value.trim();
+											await this.plugin.saveSettings();
+											this.refreshDomState();
+										})
+								)
+								.addText((text) => {
+									text
+										.setPlaceholder('Your client secret')
+										.setValue(settings.oauthClientSecret)
+										.onChange(async (value) => {
+											settings.oauthClientSecret = value.trim();
+											await this.plugin.saveSettings();
+											this.refreshDomState();
+										});
+									text.inputEl.type = 'password';
+								});
+						},
+						visible: () =>
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							settings.oauthSetupRedirectConfigured &&
+							(!settings.oauthClientId || !settings.oauthClientSecret),
+					},
+					// Step 5: authorize. Both the "Open in Obsidian" deep-link hand-back
+					// and the manual code paste are equally valid paths — shown together
+					// immediately, with no delay or disclosure gating either one.
+					{
+						name: 'Step 5: Authorize',
+						desc:
+							'Click "Authorize" to open the Google sign-in page in your browser ' +
+							'and grant calendar access.',
+						visible: () =>
+							settings.enableTwoWaySync &&
+							settings.oauthTokens === null &&
+							settings.oauthSetupProjectCreated &&
+							settings.oauthSetupApiEnabled &&
+							settings.oauthSetupRedirectConfigured &&
+							!!settings.oauthClientId &&
+							!!settings.oauthClientSecret,
 						render: (setting: Setting) => {
 							setting.addButton((btn) =>
 								btn
@@ -473,19 +695,24 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 					{
 						name: 'Authorization code',
 						desc:
-							'Paste the full redirect URL from your browser address bar ' +
-							'(e.g. http://127.0.0.1?code=…&state=…) or just the code. ' +
-							'Pasting the full URL allows the plugin to verify the state ' +
+							'After authorizing, click "Open in Obsidian" on the redirect page, or ' +
+							'paste the full redirect URL from your browser address bar ' +
+							'(e.g. https://…/oauth-redirect.html?code=…&state=…). ' +
+							'The full URL is required so the plugin can verify the state ' +
 							'parameter and protect against cross-site request forgery (CSRF).',
 						visible: () =>
 							settings.enableTwoWaySync &&
 							settings.oauthTokens === null &&
-							!!settings.oauthClientId,
+							settings.oauthSetupProjectCreated &&
+							settings.oauthSetupApiEnabled &&
+							settings.oauthSetupRedirectConfigured &&
+							!!settings.oauthClientId &&
+							!!settings.oauthClientSecret,
 						render: (setting: Setting) => {
 							setting
 								.addText((text) =>
 									text
-										.setPlaceholder('http://127.0.0.1?code=… or just the code')
+										.setPlaceholder('https://…/oauth-redirect.html?code=…&state=…')
 										.onChange((value) => {
 											authCodeInput = value;
 										})
@@ -523,39 +750,22 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 												// Not a URL — treat as bare code.
 											}
 
-											// Validate state to guard against CSRF.
-											if (
-												receivedState !== null &&
-												(this.pendingState === null ||
-													receivedState !== this.pendingState)
-											) {
-												new Notice(
-													'Time blocks: authorization state mismatch — possible security issue. Please authorize again.'
-												);
-												this.pendingCodeVerifier = null;
-												this.pendingState = null;
-												this.pendingAuthUrl = null;
-												return;
-											}
-
-											try {
-												const tokens = await exchangeCodeForTokens({
-													clientId: settings.oauthClientId,
-													code,
-													codeVerifier: this.pendingCodeVerifier,
-												});
-												settings.oauthTokens = tokens;
-												await this.plugin.saveSettings();
-												this.pendingCodeVerifier = null;
-												this.pendingState = null;
-												this.pendingAuthUrl = null;
-												new Notice('Time blocks: signed in to calendar.');
-												this.refreshDomState();
-											} catch (err) {
-												new Notice(
-													`Time blocks: authentication failed: ${String(err)}`
-												);
-											}
+											await completeAuthorization(code, receivedState, {
+												clientId: settings.oauthClientId,
+												clientSecret: settings.oauthClientSecret,
+												pendingState: this.pendingState,
+												pendingCodeVerifier: this.pendingCodeVerifier,
+												onSuccess: async (tokens) => {
+													settings.oauthTokens = tokens;
+													await this.plugin.saveSettings();
+												},
+												resetPendingAuth: () => {
+													this.pendingCodeVerifier = null;
+													this.pendingState = null;
+													this.pendingAuthUrl = null;
+												},
+											});
+											this.refreshDomState();
 										})
 								);
 						},
@@ -610,6 +820,7 @@ export class TimeBlockSettingTab extends PluginSettingTab {
 														await this.plugin.saveSettings();
 													},
 													clientId: settings.oauthClientId,
+													clientSecret: settings.oauthClientSecret,
 												});
 												const writable = cals.filter(
 													(c) =>

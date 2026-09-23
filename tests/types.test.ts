@@ -18,6 +18,7 @@ describe('DEFAULT_SETTINGS', () => {
 		// Two-way sync defaults
 		expect(DEFAULT_SETTINGS.enableTwoWaySync).toBe(false);
 		expect(DEFAULT_SETTINGS.oauthClientId).toBe('');
+		expect(DEFAULT_SETTINGS.oauthClientSecret).toBe('');
 		expect(DEFAULT_SETTINGS.oauthTokens).toBeNull();
 		expect(DEFAULT_SETTINGS.syncCalendarId).toBe('primary');
 		expect(DEFAULT_SETTINGS.conflictStrategy).toBe('ask');

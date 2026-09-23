@@ -18,6 +18,7 @@ export class Plugin {
 	addRibbonIcon(_icon: string, _title: string, _cb: () => void): void { /* stub */ }
 	addCommand(_cmd: unknown): void { /* stub */ }
 	addSettingTab(_tab: unknown): void { /* stub */ }
+	registerObsidianProtocolHandler(_action: string, _handler: (params: Record<string, string>) => unknown): void { /* stub */ }
 }
 
 export class PluginSettingTab {
